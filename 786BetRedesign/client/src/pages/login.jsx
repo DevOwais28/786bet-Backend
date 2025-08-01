@@ -1,4 +1,4 @@
-// login.tsx
+// login.jsx
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'wouter';
 import { Formik, Form, Field, ErrorMessage } from 'formik';
@@ -58,7 +58,7 @@ const Login = () => {
 
   /* ---------- countdown ---------- */
   useEffect(() => {
-    let timer: NodeJS.Timeout;
+    let timer;
     if (countdown > 0) {
       timer = setTimeout(() => setCountdown(countdown - 1), 1000);
     }
@@ -72,10 +72,7 @@ const Login = () => {
   });
 
   /* ---------- submit handler ---------- */
-  const handleSubmit = async (
-    values: { email: string; password: string },
-    { setSubmitting, setErrors }: any
-  ) => {
+  const handleSubmit = async (values, { setSubmitting, setErrors }) => {
     try {
       const response = await login({ email: values.email, password: values.password });
 
@@ -114,7 +111,7 @@ const Login = () => {
       } else {
         setErrors({ email: response.message || response.error || 'Login failed' });
       }
-    } catch (error: any) {
+    } catch (error) {
       const msg = error.response?.data?.error || error.message;
       setErrors({ email: msg });
     } finally {
@@ -123,7 +120,7 @@ const Login = () => {
   };
 
   /* ---------- OTP / e-mail verification ---------- */
-  const handleVerifyCode = async (code: string) => {
+  const handleVerifyCode = async (code) => {
     try {
       setIsLoading(true);
       setVerificationError('');
@@ -149,7 +146,6 @@ const Login = () => {
         setVerificationError('');
         setHasAttemptedLogin(true);
 
-        /* refresh auth context and redirect */
         await checkAuthStatus();
         setTimeout(() => {
           setIsRedirecting(true);
@@ -158,7 +154,7 @@ const Login = () => {
       } else {
         setVerificationError(data.message || 'Verification failed');
       }
-    } catch (error: any) {
+    } catch (error) {
       setVerificationError(error.response?.data?.message || 'Verification failed');
     } finally {
       setIsLoading(false);
@@ -166,7 +162,7 @@ const Login = () => {
   };
 
   /* ---------- resend verification ---------- */
-  const handleResendVerification = async (email: string) => {
+  const handleResendVerification = async (email) => {
     if (!email || countdown > 0) return;
     setIsResending(true);
     try {
@@ -188,7 +184,7 @@ const Login = () => {
         setShowEmailModal(false);
         setEmailForResend('');
       }
-    } catch (error: any) {
+    } catch (error) {
       toast({
         title: 'Error',
         description: error.message || 'Failed to send verification email',
@@ -348,7 +344,7 @@ const Login = () => {
                 variant: 'success',
                 className: 'bg-emerald-500/90 border-emerald-400/50 text-white backdrop-blur-sm',
               });
-            } catch (error: any) {
+            } catch (error) {
               toast({
                 title: 'Error',
                 description: error.response?.data?.message || 'Failed to resend',
@@ -402,4 +398,4 @@ const Login = () => {
 };
 
 export default Login;
-          
+      
