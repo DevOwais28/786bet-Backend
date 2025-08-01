@@ -83,7 +83,9 @@ const Login = () => {
       console.log('[Login] sessionStorage.authToken:', sessionStorage.getItem('authToken'));
       console.log('[Login] localStorage.refreshToken:', localStorage.getItem('refreshToken'));
 
+      
       if (response.success) {
+        setHasAttemptedLogin(true); // ✅ Move this up FIRST
         // Extract token from cookies
         const cookies = document.cookie.split(';');
         const accessTokenCookie = cookies.find(cookie => 
@@ -127,8 +129,10 @@ const Login = () => {
             description: "Welcome back!",
             className: "bg-emerald-500/90 border-emerald-400/50 text-white backdrop-blur-sm",
           });
-          setHasAttemptedLogin(true);
-          setLocation('/dashboard');
+          const redirectPath = sessionStorage.getItem('redirectAfterLogin') || '/dashboard';
+    sessionStorage.removeItem('redirectAfterLogin');
+    setLocation(redirectPath); // ✅ Single, correct redirect
+        }
         }
       } else {
         // Handle specific error cases
