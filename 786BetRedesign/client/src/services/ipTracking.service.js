@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL || '786bet-backend-production-4988.up.railway.app/api';
+const API_URL = import.meta.env.VITE_API_URL || '786bet-backend-production-2302.up.railway.app/api';
 
 class IPTrackingService {
   constructor() {
