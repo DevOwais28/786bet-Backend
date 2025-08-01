@@ -29,30 +29,41 @@ const Login = () => {
   const { toast } = useToast();
   const [hasAttemptedLogin, setHasAttemptedLogin] = useState(false);
   const [isRedirecting, setIsRedirecting] = useState(false);
-  const [location, setLocation] = useLocation();
 
-useEffect(() => {
-  if (!isLoading && user) {
-    setLocation('/dashboard');
-  }
-}, [isLoading, user]);
-  /* ---------- redirect only after user is truly authenticated ---------- */
+  /* ---------- Authentication and Redirect Logic ---------- */
   useEffect(() => {
-    const token = sessionStorage.getItem('authToken');
-    if (user && token && !isLoading && hasAttemptedLogin && !isRedirecting) {
-      const redirectPath = sessionStorage.getItem('redirectAfterLogin') || '/dashboard';
-      sessionStorage.removeItem('redirectAfterLogin');
-      setIsRedirecting(true);
-      setLocation(redirectPath);
-    }
-  }, [user, isLoading, hasAttemptedLogin, isRedirecting, setLocation]);
+    const checkAuth = async () => {
+      try {
+        if (!isLoading && !isRedirecting) {
+          const token = sessionStorage.getItem('authToken');
+          const isValid = token && await checkAuthStatus();
+          
+          if (isValid && user) {
+            const redirectPath = sessionStorage.getItem('redirectAfterLogin') || '/dashboard';
+            sessionStorage.removeItem('redirectAfterLogin');
+            setIsRedirecting(true);
+            setLocation(redirectPath);
+          }
+        }
+      } catch (error) {
+        console.error('Auth check failed:', error);
+        // Clear invalid tokens
+        sessionStorage.removeItem('authToken');
+        localStorage.removeItem('authToken');
+        localStorage.removeItem('refreshToken');
+      }
+    };
 
-  /* ---------- handle “?email=…&userId=…&showOTP=true” ---------- */
+    checkAuth();
+  }, [user, isLoading, isRedirecting, checkAuthStatus, setLocation]);
+
+  /* ---------- Handle "?email=...&userId=...&showOTP=true" ---------- */
   useEffect(() => {
-    const urlParams = new URLSearchParams(location.split('?')[1] || '');
+    const urlParams = new URLSearchParams(window.location.search);
     const email = urlParams.get('email');
     const userId = urlParams.get('userId');
     const showOTP = urlParams.get('showOTP');
+    
     if (email && userId && showOTP === 'true') {
       setVerificationEmail(email);
       setVerificationUserId(userId);
@@ -60,9 +71,9 @@ useEffect(() => {
       setShowVerificationModal(true);
       setEmailForResend(email);
     }
-  }, [location]);
+  }, []);
 
-  /* ---------- countdown ---------- */
+  /* ---------- Countdown Timer ---------- */
   useEffect(() => {
     let timer;
     if (countdown > 0) {
@@ -71,19 +82,19 @@ useEffect(() => {
     return () => clearTimeout(timer);
   }, [countdown]);
 
-  /* ---------- validation schema ---------- */
+  /* ---------- Validation Schema ---------- */
   const loginSchema = Yup.object().shape({
     email: Yup.string().email('Invalid email address').required('Email is required'),
     password: Yup.string().min(6, '≥ 6 characters').required('Password is required'),
   });
 
-  /* ---------- submit handler ---------- */
+  /* ---------- Submit Handler ---------- */
   const handleSubmit = async (values, { setSubmitting, setErrors }) => {
     try {
       const response = await login({ email: values.email, password: values.password });
 
       if (response.success) {
-        /* store tokens */
+        // Store tokens consistently in sessionStorage
         const cookies = document.cookie.split(';');
         const accessTokenCookie = cookies.find(c => c.trim().startsWith('accessToken='));
         const refreshTokenCookie = cookies.find(c => c.trim().startsWith('refreshToken='));
@@ -92,9 +103,10 @@ useEffect(() => {
 
         if (token) {
           sessionStorage.setItem('authToken', token);
-          localStorage.setItem('authToken', token);
         }
-        if (refreshToken) localStorage.setItem('refreshToken', refreshToken);
+        if (refreshToken) {
+          localStorage.setItem('refreshToken', refreshToken);
+        }
 
         setHasAttemptedLogin(true);
 
@@ -125,10 +137,9 @@ useEffect(() => {
     }
   };
 
-  /* ---------- OTP / e-mail verification ---------- */
+  /* ---------- OTP/Email Verification ---------- */
   const handleVerifyCode = async (code) => {
     try {
-      setIsLoading(true);
       setVerificationError('');
 
       const { data } = await apiService.api.post('/auth/verify-otp', {
@@ -152,22 +163,19 @@ useEffect(() => {
         setVerificationError('');
         setHasAttemptedLogin(true);
 
+        // Force a fresh auth check before redirecting
         await checkAuthStatus();
-        setTimeout(() => {
-          setIsRedirecting(true);
-          setLocation('/dashboard');
-        }, 200);
+        setIsRedirecting(true);
+        setLocation('/dashboard');
       } else {
         setVerificationError(data.message || 'Verification failed');
       }
     } catch (error) {
       setVerificationError(error.response?.data?.message || 'Verification failed');
-    } finally {
-      setIsLoading(false);
     }
   };
 
-  /* ---------- resend verification ---------- */
+  /* ---------- Resend Verification ---------- */
   const handleResendVerification = async (email) => {
     if (!email || countdown > 0) return;
     setIsResending(true);
@@ -221,7 +229,7 @@ useEffect(() => {
             validationSchema={loginSchema}
             onSubmit={handleSubmit}
           >
-            {({ errors, touched }) => (
+            {({ isSubmitting, errors, touched }) => (
               <Form className="space-y-6">
                 <div>
                   <Label htmlFor="email" className="block text-sm font-medium text-gray-300 mb-2">
@@ -289,10 +297,10 @@ useEffect(() => {
 
                 <Button
                   type="submit"
-                  disabled={isLoading}
+                  disabled={isSubmitting || isLoading}
                   className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-semibold py-3 px-4 rounded-lg transition-all duration-200 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {isLoading ? (
+                  {isSubmitting || isLoading ? (
                     <>
                       <Loader2 className="animate-spin -ml-1 mr-2 h-4 w-4" />
                       Signing in...
@@ -404,4 +412,3 @@ useEffect(() => {
 };
 
 export default Login;
-      
