@@ -29,7 +29,11 @@ const Login = () => {
   const { toast } = useToast();
   const [hasAttemptedLogin, setHasAttemptedLogin] = useState(false);
   const [isRedirecting, setIsRedirecting] = useState(false);
-
+  
+  
+  if (!isLoading && user) {
+  return <Navigate to="/dashboard" replace />;
+  }
   /* ---------- redirect only after user is truly authenticated ---------- */
   useEffect(() => {
     const token = sessionStorage.getItem('authToken');
