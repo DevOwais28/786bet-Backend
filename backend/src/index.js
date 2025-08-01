@@ -39,10 +39,42 @@ app.use(helmet());
 app.use(cookieParser());
 
 // CORS configuration
+// CORS configuration with debugging
+  const allowedOrigins = [
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'https://786bet-backend.vercel.app',
+    'https://*.vercel.app',
+    process.env.FRONTEND_URL
+  ].filter(Boolean);
+
+  console.log('CORS allowed origins:', allowedOrigins);
+
 app.use(cors({
-  origin: ["https://786bet-backend.vercel.app"], // OR use "*" temporarily for testing
-  credentials: true
+  origin: function (origin, callback) {
+    console.log('CORS request from origin:', origin);
+    // Allow requests with no origin (like mobile apps or curl)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.some(allowed => {
+      if (allowed.includes('*')) {
+        const regex = new RegExp(allowed.replace('*', '.*'));
+        return regex.test(origin);
+      }
+      return allowed === origin;
+    })) {
+      return callback(null, true);
+    }
+    
+    console.log('CORS blocked origin:', origin);
+    callback(new Error('Not allowed by CORS'));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Origin', 'Accept'],
+  exposedHeaders: ['X-Total-Count']
 }));
+
 
 // IP Tracking middleware
 const { ipTracker } = require('./middleware/ipTracker.middleware');
