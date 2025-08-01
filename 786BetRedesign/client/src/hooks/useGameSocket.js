@@ -23,7 +23,7 @@ export const useGameSocket = () => {
   const connect = () => {
     if (!token || socketRef.current) return;
 
-    const newSocket = io('786bet-backend-production-2302.up.railway.app', {
+    const newSocket = io('https://786bet-backend-production.up.railway.app', {
       transports: ['websocket', 'polling'], 
       withCredentials: true,
       timeout: 10000,

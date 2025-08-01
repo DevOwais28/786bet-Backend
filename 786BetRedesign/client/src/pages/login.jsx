@@ -1,67 +1,93 @@
-// login.tsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'wouter';
 import { Formik, Form, Field, ErrorMessage } from 'formik';
 import * as Yup from 'yup';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { ArrowLeft, Loader2 } from 'lucide-react';
+import { Loader2, Eye, EyeOff, Mail, Shield } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
-import { TwoFactorModal } from '@/components/TwoFactorModal';
-import { VerificationCodeInput } from '@/components/VerificationCodeInput';
-import { Eye, EyeOff } from 'lucide-react';
-import emailJSService from '@/services/emailjs.service';
 import { useToast } from '@/hooks/use-toast';
-import {apiService} from '@/services/api.service';
-
+import { VerificationCodeInput } from '@/components/VerificationCodeInput';
+import emailJSService from '@/services/emailjs.service';
 const Login = () => {
-  const [location, setLocation] = useLocation();
+  const [_, setLocation] = useLocation();
   const { login, isLoading, user } = useAuth();
-  const [show2FAModal, setShow2FAModal] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showResendVerification, setShowResendVerification] = useState(false);
   const [showVerificationModal, setShowVerificationModal] = useState(false);
   const [showEmailModal, setShowEmailModal] = useState(false);
-  const [emailForResend, setEmailForResend] = useState('');
-  const [verificationType, setVerificationType] = useState(''); // 'admin', 'email', or 'signup'
   const [verificationEmail, setVerificationEmail] = useState('');
-  const [verificationUserId, setVerificationUserId] = useState('');
-  const [showResendVerification, setShowResendVerification] = useState(false);
-  const [resendEmail, setResendEmail] = useState('');
-  const [isResending, setIsResending] = useState(false);
+  const [verificationType, setVerificationType] = useState('');
   const [verificationError, setVerificationError] = useState('');
+
+  // Handle navigation after successful login
+  useEffect(() => {
+    if (user && !isLoading) {
+      // Navigate to dashboard after successful login with a small delay
+      setTimeout(() => {
+        setLocation('/dashboard');
+      }, 100);
+    }
+  }, [user, isLoading, setLocation]);
+  const [isResending, setIsResending] = useState(false);
   const [countdown, setCountdown] = useState(0);
-  const [showPassword, setShowPassword] = useState(false);
+  const [emailForResend, setEmailForResend] = useState('');
   const { toast } = useToast();
 
-  // Only redirect after successful manual login, not on page refresh
-  const [hasAttemptedLogin, setHasAttemptedLogin] = useState(false);
-  
-  React.useEffect(() => {
-    const token = sessionStorage.getItem('authToken');
-    // Only redirect if user manually logged in during this session
-    if (user && !isLoading && token && hasAttemptedLogin) {
+  // Countdown effect for resend verification
+  useEffect(() => {
+    let timer;
+    if (countdown > 0) {
+      timer = setTimeout(() => setCountdown(countdown - 1), 1000);
+    }
+    return () => clearTimeout(timer);
+  }, [countdown]);
+
+  // Redirect if already logged in
+  useEffect(() => {
+    if (user && !isLoading) {
       const redirectPath = sessionStorage.getItem('redirectAfterLogin') || '/dashboard';
       sessionStorage.removeItem('redirectAfterLogin');
       setLocation(redirectPath);
     }
-  }, [user, isLoading, hasAttemptedLogin, setLocation]);
-  
-  // Handle URL parameters for automatic OTP modal display
-  React.useEffect(() => {
-    const urlParams = new URLSearchParams(location.split('?')[1] || '');
-    const email = urlParams.get('email');
-    const userId = urlParams.get('userId');
-    const showOTP = urlParams.get('showOTP');
-    
-    if (email && userId && showOTP === 'true') {
-      setVerificationEmail(email);
-      setVerificationUserId(userId);
-      setVerificationType('signup');
+  }, [user, isLoading, setLocation]);
+
+  const handleResendVerification = async (email = '') => {
+    try {
+      setIsResending(true);
+      const emailToUse = email || verificationEmail;
+      
+      if (!emailToUse) {
+        setShowEmailModal(true);
+        return;
+      }
+      
+      // Set verification email and type
+      setVerificationEmail(emailToUse);
+      setVerificationType('email');
+      
+      // Use emailJS service to send verification email
+      await emailJSService.sendVerificationEmail(emailToUse);
+      
+      setCountdown(60); // 60 seconds cooldown
       setShowVerificationModal(true);
-      setShowResendVerification(true);
-      setResendEmail(email);
+      setShowEmailModal(false);
+      
+      toast({
+        title: 'Verification email sent',
+        description: 'Please check your email for the verification code.',
+      });
+    } catch (error) {
+      toast({
+        title: 'Failed to resend verification',
+        description: error.message || 'Please try again later.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsResending(false);
     }
-  }, [location]);
+  };
 
   const loginSchema = Yup.object().shape({
     email: Yup.string()
@@ -72,393 +98,270 @@ const Login = () => {
       .required('Password is required'),
   });
 
+  const handleVerifyCode = async (code) => {
+    try {
+      setVerificationError('');
+      
+      // For email verification
+      if (verificationType === 'email') {
+        // Check if code matches stored OTP
+        const pendingData = JSON.parse(localStorage.getItem('pendingVerification') || '{}');
+        if (pendingData.email === verificationEmail && pendingData.otp === code) {
+          setShowVerificationModal(false);
+          toast({
+            title: 'Email verified',
+            description: 'Your email has been verified successfully!',
+          });
+          
+          // Clear pending verification
+          localStorage.removeItem('pendingVerification');
+          
+          // Complete registration if this was for registration
+          if (pendingData.registrationData) {
+            // Redirect to register page with verified data
+            setLocation('/register?verified=true');
+          } else {
+            // For login verification, redirect to login
+            window.location.reload();
+          }
+        } else {
+          setVerificationError('Invalid verification code');
+        }
+      } else if (verificationType === 'admin') {
+        // Admin OTP verification
+        const adminData = JSON.parse(localStorage.getItem('adminOTP') || '{}');
+        if (adminData.email === verificationEmail && adminData.otp === code) {
+          setShowVerificationModal(false);
+          localStorage.removeItem('adminOTP');
+          
+          // Proceed with admin login
+          toast({
+            title: 'Admin verified',
+            description: 'Admin access granted!',
+          });
+          
+          // Redirect to admin dashboard
+          setLocation('/admin');
+        } else {
+          setVerificationError('Invalid admin verification code');
+        }
+      }
+    } catch (error) {
+      console.error('Verification error:', error);
+      setVerificationError('Invalid verification code');
+    }
+  };
+
   const handleSubmit = async (values, { setSubmitting, setErrors }) => {
     try {
-      // Check if this is an admin email (from environment variables)
-      const adminEmails = (import.meta.env.VITE_ADMIN_EMAILS || '').split(',').map(email => email.trim().toLowerCase());
-      const isAdminEmail = adminEmails.includes(values.email.toLowerCase());
-
-      const response = await login({ email: values.email, password: values.password });
-      console.log('[Login] Response:', response);
-      console.log('[Login] sessionStorage.authToken:', sessionStorage.getItem('authToken'));
-      console.log('[Login] localStorage.refreshToken:', localStorage.getItem('refreshToken'));
-
-      if (response.success) {
-        // Extract token from cookies
-        const cookies = document.cookie.split(';');
-        const accessTokenCookie = cookies.find(cookie => 
-          cookie.trim().startsWith('accessToken=')
-        );
-        const refreshTokenCookie = cookies.find(cookie => 
-          cookie.trim().startsWith('refreshToken=')
-        );
+      setSubmitting(true);
+      setShowResendVerification(false); // Reset verification UI state
+      
+      // Check if this is an admin login attempt
+      const isAdminEmail = values.email.includes('@admin') || values.email.endsWith('.admin');
+      
+      if (isAdminEmail) {
+        // Admin login requires OTP verification
+        setVerificationEmail(values.email);
+        setVerificationType('admin');
         
-        const token = accessTokenCookie ? accessTokenCookie.split('=')[1] : null;
-        const refreshToken = refreshTokenCookie ? refreshTokenCookie.split('=')[1] : null;
-        
-        if (token) {
-          sessionStorage.setItem('authToken', token);
-        }
-        if (refreshToken) {
-          localStorage.setItem('refreshToken', refreshToken);
-        }
-        
-        // Redirect to stored path or dashboard
-        setTimeout(() => {
-          const redirectPath = sessionStorage.getItem('redirectAfterLogin') || '/dashboard';
-          sessionStorage.removeItem('redirectAfterLogin');
-          setLocation(redirectPath);
-        }, 100);
-
-        if (response.requiresOTP) {
-          // Admin login requires OTP
-          setVerificationEmail(values.email);
-          setVerificationType('admin_login');
+        try {
+          await emailJSService.sendAdminLoginOTP(values.email);
           setShowVerificationModal(true);
+          
+          // Store admin OTP data temporarily
+          const adminOTP = {
+            email: values.email,
+            password: values.password, // Store password temporarily for verification
+            otp: Math.floor(100000 + Math.random() * 900000).toString(),
+            timestamp: Date.now()
+          };
+          localStorage.setItem('adminOTP', JSON.stringify(adminOTP));
+          
           toast({
-            title: "Admin OTP Sent",
-            description: "Please check your email for the OTP code",
-            className: "bg-blue-500/90 border-blue-400/50 text-white backdrop-blur-sm",
+            title: 'Admin verification required',
+            description: 'Please check your email for the admin OTP code.',
           });
-        } else {
-          // Regular user login successful
+        } catch (emailError) {
           toast({
-            title: "Login Successful",
-            description: "Welcome back!",
-            className: "bg-emerald-500/90 border-emerald-400/50 text-white backdrop-blur-sm",
+            title: 'Admin verification failed',
+            description: 'Could not send admin OTP. Please try again.',
+            variant: 'destructive',
           });
-          setHasAttemptedLogin(true);
-          setLocation('/dashboard');
+        } finally {
+          setSubmitting(false);
         }
+        return;
+      }
+      
+      // Regular user login
+      const response = await login(values.email, values.password);
+      
+      if (response.success) {
+        // Show success message
+        toast({
+          title: 'Login successful',
+          description: 'Redirecting to dashboard...',
+        });
+        
+        // Send welcome email
+        try {
+          await emailJSService.sendWelcomeEmail(values.email, response.user?.name || 'User');
+        } catch (emailError) {
+          console.error('Failed to send welcome email:', emailError);
+        }
+        
       } else {
         // Handle specific error cases
-        if (response.requiresVerification) {
-          console.log('User not verified - triggering verification modal:', values.email);
-          setVerificationEmail(values.email);
-          setVerificationUserId(response.userId);
-          setVerificationType('email');
-          setShowVerificationModal(true);
+        if (response.error?.includes('not verified')) {
           setShowResendVerification(true);
-          setResendEmail(values.email);
-        } else if (response.error?.toLowerCase().includes('user not found') ||
-                   response.error?.toLowerCase().includes('register')) {
-          setErrors({ email: 'Account not found. Please register yourself first.' });
+          setErrors({ 
+            email: 'Please verify your email address',
+            password: 'Check your email for the verification link' 
+          });
+        } else if (response.error?.includes('pending')) {
+          setErrors({ 
+            submit: 'Your account is pending approval. Please wait for admin verification.' 
+          });
         } else {
-          setErrors({ email: response.message || response.error || 'Login failed' });
+          setErrors({ 
+            email: 'Invalid email or password', 
+            password: 'Please check your credentials and try again' 
+          });
         }
       }
     } catch (error) {
       console.error('Login error:', error);
-      const msg = error.response?.data?.error || error.message;
-      if (msg?.toLowerCase().includes('user not found') || msg?.toLowerCase().includes('register')) {
-        setErrors({ email: 'Account not found. Please register yourself first.' });
-      } else {
-        setErrors({ email: msg || 'Login failed' });
-      }
+      const errorMessage = error.response?.data?.message || error.message || 'An error occurred during login';
+      setErrors({ submit: errorMessage });
+      toast({
+        title: 'Login error',
+        description: errorMessage,
+        variant: 'destructive',
+      });
     } finally {
       setSubmitting(false);
     }
   };
 
-  const PasswordField = ({ errors, touched }) => {
-    return (
-      <div>
-        <div className="relative">
-          <Field
-            as={Input}
-            type={showPassword ? "text" : "password"}
-            name="password"
-            id="password"
-            placeholder="Enter your password"
-            className={`bg-gray-700 border-gray-600 text-white placeholder-gray-400 pr-10 ${
-              errors.password && touched.password ? 'border-red-500' : ''
-            }`}
-          />
-          <button
-            type="button"
-            className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-300 focus:outline-none"
-            onClick={() => setShowPassword(!showPassword)}
-          >
-            {showPassword ? (
-              <EyeOff className="h-5 w-5" />
-            ) : (
-              <Eye className="h-5 w-5" />
-            )}
-          </button>
-        </div>
-        <ErrorMessage name="password" component="div" className="text-red-400 text-sm mt-1" />
-      </div>
-    );
-  };
-
-  // Countdown timer effect
-  React.useEffect(() => {
-    let timer;
-    if (countdown > 0) {
-      timer = setTimeout(() => setCountdown(countdown - 1), 1000);
-    }
-    return () => clearTimeout(timer);
-  }, [countdown]);
-
-  const handleVerifyCode = async (code) => {
-    try {
-      setIsLoading(true);
-      setVerificationError('');
-      
-      const response = await apiService.api.post('/auth/verify-otp', {
-        email: verificationEmail,
-        code: code,
-        type: verificationType
-      });
-
-      if (response.data.success) {
-        toast({
-          title: "Verification Successful",
-          description: verificationType === 'admin' ? "Admin access granted" : "Email verified successfully",
-          variant: "success",
-          className: "bg-emerald-500/90 border-emerald-400/50 text-white backdrop-blur-sm",
-        });
-        
-        setHasAttemptedLogin(true);
-        setShowVerificationModal(false);
-        setLocation('/dashboard');
-      } else {
-        setVerificationError(response.data.message || 'Verification failed');
-      }
-    } catch (error) {
-      setVerificationError(error.response?.data?.message || 'Verification failed');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleResendVerification = async (email) => {
-    if (!email || countdown > 0) return;
-    
-    setIsResending(true);
-    try {
-      // Use backend endpoint to generate OTP and get userId
-      const response = await apiService.api.post('/auth/send-verification', { email });
-      
-      if (response.data && response.data.success) {
-        // Check if we have the expected data structure
-        const responseData = response.data.data || response.data;
-        const otp = responseData.otp || responseData.token;
-        const userId = responseData.userId || responseData.userId;
-        
-        if (!otp) {
-          throw new Error('OTP not found in response');
-        }
-        
-        // Send email using frontend EmailJS with backend-generated OTP
-        await emailJSService.sendVerificationEmail(email, 'User', otp, userId || '');
-        
-        // Store verification data in localStorage
-        localStorage.setItem('verificationData', JSON.stringify({ 
-          email, 
-          otp, 
-          userId: userId || '', 
-          type: 'email-verification' 
-        }));
-        
-        toast({ 
-          title: 'Success', 
-          description: 'Verification email sent successfully!', 
-          variant: 'success', 
-          className: "bg-emerald-500/90 border-emerald-400/50 text-white backdrop-blur-sm",
-        });
-        
-        setLocation('/verify-email');
-        setCountdown(60);
-        setShowEmailModal(false);
-        setEmailForResend('');
-      } else {
-        toast({ 
-          title: 'Error', 
-          description: response.data.message || 'Failed to send verification email', 
-          variant: 'destructive', 
-          className: "bg-red-500/90 border-red-400/50 text-white backdrop-blur-sm",
-        });
-      }
-    } catch (error) {
-      toast({ 
-        title: 'Error', 
-        description: error.message || 'Failed to send verification email', 
-        variant: 'destructive', 
-        className: "bg-red-500/90 border-red-400/50 text-white backdrop-blur-sm",
-      });
-      console.error('Email sending error:', error);
-    } finally {
-      setIsResending(false);
-    }
-  };
-
-  const handleForgotPassword = async (email) => {
-    if (!email) return;
-    
-    try {
-      // Generate OTP for password reset
-      const otp = Math.floor(100000 + Math.random() * 900000).toString();
-      
-      // Send password reset email using frontend emailjs
-      await emailJSService.sendPasswordResetEmail(email, otp);
-      
-      // Store email and OTP in localStorage for password reset
-      localStorage.setItem('passwordResetData', JSON.stringify({
-        email: email,
-        otp: otp,
-        type: 'password-reset',
-        timestamp: Date.now()
-      }));
-      
-      // Show success message
-      toast({
-        title: 'Password Reset Email Sent',
-        description: 'Please check your email for the password reset OTP',
-        variant: 'success',
-        className: 'bg-emerald-500/90 border-emerald-400/50 text-white backdrop-blur-sm',
-      });
-      
-      // Redirect to password reset page
-      setLocation(`/reset-password?email=${encodeURIComponent(email)}`);
-      
-    } catch (error) {
-      console.error('Failed to send password reset email:', error);
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to send password reset email',
-        variant: 'destructive',
-        className: 'bg-red-500/90 border-red-400/50 text-white backdrop-blur-sm',
-      });
-    }
-  };
-
-  const checkEmailExists = async (email) => {
-    try {
-      const response = await apiService.api.post('/auth/check-email', { email });
-      return response.data.exists;
-    } catch (error) {
-      console.error('Error checking email:', error);
-      return false;
-    }
-  };
-
-  // Navigate to forgot password page
-  const handleForgotPasswordClick = () => {
-    setLocation('/forgot-password');
-  };
-
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8">
-        <div className="text-center">
-          <h2 className="text-4xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-            Welcome Back
-          </h2>
-          <p className="mt-2 text-gray-300">
-            Sign in to access your account
-          </p>
+    <div className="min-h-screen flex flex-col md:flex-row">
+      {/* Left side - Image */}
+      <div className="hidden md:block md:w-1/2 bg-gradient-to-br from-blue-600 to-indigo-800">
+        <div className="h-full flex items-center justify-center p-12">
+          <div className="text-center text-white">
+            <h1 className="text-4xl font-bold mb-4">Welcome Back!</h1>
+            <p className="text-xl opacity-90">Sign in to access your account and start playing.</p>
+          </div>
         </div>
-        
-        <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-2xl p-8 shadow-2xl">
+      </div>
+
+      {/* Right side - Login Form */}
+      <div className="w-full md:w-1/2 flex items-center justify-center p-6 md:p-12 flex-col">
+        <div className="w-full max-w-md">
+          <div className="mb-8 text-center">
+            <Link href="/">
+              <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-full flex items-center justify-center">
+                <span className="text-white font-bold text-xl">786</span>
+              </div>
+            </Link>
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Sign in to your account</h2>
+            <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+              Don't have an account?{' '}
+              <Link href="/register" className="font-medium text-blue-600 hover:text-blue-500 dark:text-blue-400 hover:underline">
+                Sign up
+              </Link>
+            </p>
+          </div>
+
           <Formik
             initialValues={{ email: '', password: '' }}
             validationSchema={loginSchema}
             onSubmit={handleSubmit}
           >
-            {({ errors, touched }) => (
+            {({ errors, isSubmitting, ...formik }) => (
               <Form className="space-y-6">
-                <div>
-                  <Label htmlFor="email" className="block text-sm font-medium text-gray-300 mb-2">
-                    Email Address
-                  </Label>
-                  <Field
-                    as={Input}
-                    id="email"
-                    name="email"
-                    type="email"
-                    autoComplete="email"
-                    required
-                    className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
-                    placeholder="your@email.com"
-                  />
-                  <ErrorMessage name="email" component="div" className="text-red-400 text-sm mt-1" />
-                </div>
+                {errors.submit && (
+                  <div className="rounded-md bg-red-50 dark:bg-red-900/20 p-4">
+                    <div className="flex">
+                      <div className="ml-3">
+                        <h3 className="text-sm font-medium text-red-800 dark:text-red-200">
+                          {errors.submit}
+                        </h3>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 <div>
-                  <Label htmlFor="password" className="block text-sm font-medium text-gray-300 mb-2">
-                    Password
+                  <Label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Email address
                   </Label>
-                  <div className="relative">
+                  <div className="mt-1">
                     <Field
-                      as={Input}
-                      id="password"
-                      name="password"
-                      type={showPassword ? "text" : "password"}
-                      autoComplete="current-password"
+                      id="email"
+                      name="email"
+                      type="email"
+                      autoComplete="email"
                       required
-                      className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 pr-10 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
-                      placeholder="••••••••"
+                      className="appearance-none block w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm dark:bg-gray-800 dark:text-white text-gray-900"
                     />
-                    <button
-                      type="button"
-                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-300 transition-colors"
-                      onClick={() => setShowPassword(!showPassword)}
-                    >
-                      {showPassword ? (
-                        <EyeOff className="h-5 w-5" />
-                      ) : (
-                        <Eye className="h-5 w-5" />
-                      )}
-                    </button>
+                    <ErrorMessage name="email" component="div" className="mt-1 text-sm text-red-600 dark:text-red-400" />
                   </div>
-                  <ErrorMessage name="password" component="div" className="text-red-400 text-sm mt-1" />
                 </div>
 
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center">
-                    <input
-                      id="remember-me"
-                      name="remember-me"
-                      type="checkbox"
-                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-600 rounded bg-gray-700"
-                    />
-                    <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-300">
-                      Remember me
-                    </label>
+                <div>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="password" className="block text-sm font-medium">
+                      Password
+                    </Label>
+                    <div className="text-sm">
+                      <Link href="/forgot-password" className="font-medium text-blue-600 hover:text-blue-500 dark:text-blue-400 hover:underline">
+                        Forgot password?
+                      </Link>
+                    </div>
                   </div>
+                  <div className="mt-1">
+                    <div className="relative">
+                      <Field
+                        id="password"
+                        name="password"
+                        type={showPassword ? 'text' : 'password'}
+                        autoComplete="current-password"
+                        required
+                        className="appearance-none block w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm dark:bg-gray-800 dark:text-white text-gray-900 pr-10"
+                      />
+                      <button
+                        type="button"
+                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-500 dark:text-gray-500 dark:hover:text-gray-400 h-full"
+                        onClick={() => setShowPassword(!showPassword)}
+                      >
+                        {showPassword ? (
+                          <EyeOff className="h-5 w-5" aria-hidden="true" />
+                        ) : (
+                          <Eye className="h-5 w-5" aria-hidden="true" />
+                        )}
+                      </button>
+                    </div>
+                    <ErrorMessage name="password" component="div" className="mt-1 text-sm text-red-600 dark:text-red-400" />
+                  </div>
+                </div>
 
-                  <button
-                    type="button"
-                    onClick={handleForgotPasswordClick}
-                    className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
+                <div>
+                  <Button
+                    type="submit"
+                    disabled={isSubmitting || isLoading}
+                    className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:bg-blue-700 dark:hover:bg-blue-600"
                   >
-                    Forgot password?
-                  </button>
-                </div>
-
-                <Button
-                  type="submit"
-                  disabled={isLoading}
-                  className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-semibold py-3 px-4 rounded-lg transition-all duration-200 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isLoading ? (
-                    <>
-                      <Loader2 className="animate-spin -ml-1 mr-2 h-4 w-4" />
-                      Signing in...
-                    </>
-                  ) : (
-                    'Sign In'
-                  )}
-                </Button>
-
-                <div className="text-center">
-                  <p className="text-gray-400">
-                    Don't have an account?{' '}
-                    <Link href="/register" className="text-blue-400 hover:text-blue-300 font-medium">
-                      Sign up here
-                    </Link>
-                  </p>
+                    {isSubmitting || isLoading ? (
+                      <>
+                        <Loader2 className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" />
+                        Signing in...
+                      </>
+                    ) : (
+                      'Sign in'
+                    )}
+                  </Button>
                 </div>
               </Form>
             )}
@@ -467,47 +370,44 @@ const Login = () => {
         {showResendVerification && (
           <div className="mt-4 p-4 bg-yellow-600/20 border border-yellow-600 rounded-lg">
             <p className="text-sm text-yellow-400 mb-2">
-              Didn't receive the verification email?
+              Please verify your email address to continue. Check your inbox for the verification link.
             </p>
             <Button
               type="button"
               variant="outline"
-              onClick={handleResendVerification}
+              onClick={() => handleResendVerification(formik?.values?.email)}
               disabled={isResending || countdown > 0}
-              className="w-full"
+              className="w-full bg-yellow-600/10 hover:bg-yellow-600/20 border-yellow-600 text-yellow-400 hover:text-yellow-300"
             >
               {isResending ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Resending...
+                  Sending...
                 </>
               ) : countdown > 0 ? (
                 `Resend in ${countdown}s`
               ) : (
-                <div className="text-center mt-6 space-y-4">
-                  <p className="text-gray-400">
-                    Don't have an account?{' '}
-                    <Link href="/register" className="text-emerald-500 hover:text-emerald-400 font-medium">
-                      Register here
-                    </Link>
-                  </p>
-                  <p className="text-sm text-gray-400">
-                    Didn't receive verification email?{' '}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowEmailModal(true);
-                      }}
-                      className="text-yellow-500 hover:text-yellow-400 underline cursor-pointer"
-                    >
-                      Resend verification email
-                    </button>
-                  </p>
-                </div>
+                <span className="flex items-center justify-center">
+                  <Mail className="h-4 w-4 mr-2" />
+                  Resend verification email
+                </span>
               )}
             </Button>
           </div>
         )}
+        
+        {/* Verification Code Modal */}
+        <VerificationCodeInput
+          isOpen={showVerificationModal}
+          onClose={() => setShowVerificationModal(false)}
+          onVerify={handleVerifyCode}
+          email={verificationEmail}
+          isLoading={isLoading}
+          error={verificationError}
+          onResendCode={() => handleResendVerification(verificationEmail)}
+          isResending={isResending}
+          countdown={countdown}
+        />
         
         <div className="text-sm text-gray-400">
           <span>Didn't receive verification email?{' '}</span>

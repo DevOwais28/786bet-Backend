@@ -29,28 +29,39 @@ function AuthProvider({ children }) {
         
         hasInitialized = true;
         
-        if (response.isAuthenticated && response.user) {
+        // Backend response structure: { success: true, isAuthenticated: true, user: {...} }
+        if (response?.success && response?.isAuthenticated && response?.user) {
           // User is authenticated via cookies, set user state
           setUser(response.user);
-          setToken('authenticated'); // Dummy token since cookies handle auth
+          setToken('authenticated');
           apiService.setAuthToken('authenticated');
-        } else if (response.isAuthenticated === false) {
-          // Only clear state if we get a definitive "not authenticated" response
+          
+          // Store auth state in localStorage to persist across page refreshes
+          localStorage.setItem('isAuthenticated', 'true');
+        } else if (response?.isAuthenticated && response?.user) {
+          // Alternative response format
+          setUser(response.user);
+          setToken('authenticated');
+          apiService.setAuthToken('authenticated');
+          localStorage.setItem('isAuthenticated', 'true');
+        } else {
+          // Not authenticated - clear state
           setUser(null);
           setToken(null);
           apiService.setAuthToken(null);
+          localStorage.removeItem('isAuthenticated');
         }
       } catch (error) {
         if (!isMounted) return;
         
         hasInitialized = true;
-        console.warn('Auth initialization error (may be temporary):', error);
-        // Only clear on actual auth failure
-        if (error.response?.status === 401) {
-          setUser(null);
-          setToken(null);
-          apiService.setAuthToken(null);
-        }
+        console.warn('Auth initialization error:', error);
+        
+        // Clear state on any auth error
+        setUser(null);
+        setToken(null);
+        apiService.setAuthToken(null);
+        localStorage.removeItem('isAuthenticated');
       } finally {
         if (isMounted) {
           setIsLoading(false);
@@ -72,7 +83,50 @@ function AuthProvider({ children }) {
       isMounted = false;
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, []); // Only run once on mount
+  }, []);  // Add checkAuth method for persistent authentication
+  const checkAuth = async () => {
+    try {
+      // First check if we have a token in sessionStorage
+      const token = sessionStorage.getItem('authToken');
+      if (!token) {
+        return { success: false, isAuthenticated: false };
+      }
+      
+      // Try to validate the token with the server
+      const response = await apiService.get('/api/auth/check-auth');
+      
+      // If we get a valid response, update the auth state
+      if (response.data?.isAuthenticated) {
+        // Store the updated token if provided
+        if (response.data.token) {
+          sessionStorage.setItem('authToken', response.data.token);
+        }
+        return {
+          success: true,
+          isAuthenticated: true,
+          user: response.data.user
+        };
+      }
+      
+      return { success: false, isAuthenticated: false };
+    } catch (error) {
+      console.error('Auth check failed:', error);
+      // Don't clear the token on network errors
+      if (error.code === 'ERR_NETWORK') {
+        // If we have a token but got a network error, assume we're still authenticated
+        const token = sessionStorage.getItem('authToken');
+        if (token) {
+          return { 
+            success: true, 
+            isAuthenticated: true,
+            // Try to get user from localStorage as fallback
+            user: JSON.parse(localStorage.getItem('user') || 'null')
+          };
+        }
+      }
+      return { success: false, isAuthenticated: false };
+    }
+  };
 
   const loadUser = async () => {
     try {
@@ -95,58 +149,37 @@ function AuthProvider({ children }) {
     }
   };
 
-  const login = async (credentials) => {
+  const login = async (email, password) => {
     try {
-      setIsLoading(true);
-      const response = await apiService.login(credentials);
+      const response = await apiService.login({ email, password });
       
-      if (response.requiresTwoFactor) {
-        setRequires2FA(true);
-        return { success: false, requires2FA: true };
-      }
-      
-      if (response.success) {
+      // Backend response structure: { success: true, message: "Login successful", token, refreshToken, user: {...} }
+      if (response?.success && response?.user) {
+        // Store user data in localStorage for persistence
+        localStorage.setItem('user', JSON.stringify(response.user));
+        localStorage.setItem('isAuthenticated', 'true');
+        
+        // Update state
         setUser(response.user);
         setToken(response.token);
-        sessionStorage.setItem('authToken', response.token);
-        setRequires2FA(false);
-        
-        // Check if this is the user's first login
-        const isFirstLogin = response.user.isFirstLogin;
-        
-        // Send welcome email only on first login
-        if (isFirstLogin) {
-          try {
-            const emailJSService = (await import('@/services/emailjs.service.js')).default;
-            await emailJSService.sendWelcomeEmail(response.user.email, response.user.username);
-            console.log('Welcome email sent for first login');
-          } catch (emailError) {
-            console.error('Failed to send welcome email:', emailError);
-            // Don't fail login if email fails
-          }
-        }
-        
-        toast({
-          title: isFirstLogin ? 'Welcome!' : 'Welcome back!',
-          description: isFirstLogin ? 
-            `Welcome to 786Bet, ${response.user.username}!` : 
-            `Logged in as ${response.user.username}`,
-        });
+        apiService.setAuthToken(response.token);
         
         return { success: true, user: response.user };
+      } else {
+        return { 
+          success: false, 
+          error: response?.message || 'Login failed',
+          requiresVerification: response?.requiresVerification,
+          userId: response?.userId,
+          email: response?.email
+        };
       }
-      
-      throw new Error(response.message || 'Login failed');
     } catch (error) {
-      const message = error.response?.data?.message || error.message || 'Login failed';
-      toast({
-        title: 'Login failed',
-        description: message,
-        variant: 'destructive',
-      });
-      return { success: false, error: message };
-    } finally {
-      setIsLoading(false);
+      console.error('Login error:', error);
+      // Clear any partial auth state on error
+      localStorage.removeItem('isAuthenticated');
+      localStorage.removeItem('user');
+      return { success: false, error: error.response?.data?.message || error.message || 'Login failed' };
     }
   };
 
@@ -231,12 +264,18 @@ function AuthProvider({ children }) {
     } catch (error) {
       console.error('Logout error:', error);
     } finally {
+      // Clear all auth state
       setUser(null);
       setToken(null);
-      toast({
-        title: 'Logged out',
-        description: 'You have been successfully logged out',
-      });
+      apiService.setAuthToken(null);
+      
+      // Clear all storage
+      localStorage.removeItem('isAuthenticated');
+      localStorage.removeItem('user');
+      sessionStorage.removeItem('authToken');
+      
+      // Don't force reload, let the router handle the redirect
+      // This prevents the flash of login page before redirect
     }
   };
 
@@ -307,7 +346,7 @@ function AuthProvider({ children }) {
     };
   }, []);
 
-  // Add proactive token monitoring with better error handling
+  // Add proactive token monitoring with better error handling - only check on explicit actions
   useEffect(() => {
     if (!token) return;
 
@@ -334,36 +373,39 @@ function AuthProvider({ children }) {
       }
     };
 
-    // Check token health on page focus and visibility change - but less aggressively
-    const handleVisibilityChange = () => {
-      if (!document.hidden && token) {
-        // Skip check if we just navigated back (within last 2 seconds)
-        const lastCheck = sessionStorage.getItem('lastAuthCheck');
-        const now = Date.now();
-        if (!lastCheck || (now - parseInt(lastCheck)) > 2000) {
-          checkTokenHealth();
-          sessionStorage.setItem('lastAuthCheck', now.toString());
-        }
-      }
-    };
-
+    // Check token health only on explicit page focus (not on every visibility change)
     const handleFocus = () => {
       if (token) {
         const lastCheck = sessionStorage.getItem('lastAuthCheck');
         const now = Date.now();
-        if (!lastCheck || (now - parseInt(lastCheck)) > 2000) {
+        // Only check every 30 seconds to prevent race conditions
+        if (!lastCheck || (now - parseInt(lastCheck)) > 30000) {
           checkTokenHealth();
           sessionStorage.setItem('lastAuthCheck', now.toString());
         }
       }
     };
 
-    document.addEventListener('visibilitychange', handleVisibilityChange);
+    // Add a small delay before checking auth to prevent race conditions
+    const handleVisibilityChange = () => {
+      if (!document.hidden && token) {
+        setTimeout(() => {
+          const lastCheck = sessionStorage.getItem('lastAuthCheck');
+          const now = Date.now();
+          if (!lastCheck || (now - parseInt(lastCheck)) > 30000) {
+            checkTokenHealth();
+            sessionStorage.setItem('lastAuthCheck', now.toString());
+          }
+        }, 1000);
+      }
+    };
+
     window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [token]);
 

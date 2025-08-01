@@ -6,7 +6,7 @@ const defaultHeaders = {
   'Accept': 'application/json',
 };
 
-const BASE_URL = import.meta.env.VITE_API_URL || '786bet-backend-production-2302.up.railway.app';
+const BASE_URL = import.meta.env.VITE_API_URL || '';
 
 function isPlainObject(obj) {
   return !!obj && typeof obj === 'object' && !Array.isArray(obj) && !(obj instanceof Headers);

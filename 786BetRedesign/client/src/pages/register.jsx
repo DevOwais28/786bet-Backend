@@ -1,21 +1,21 @@
-import { useState } from "react";
-import { Link, useLocation } from "wouter";
-import { Formik, Form, Field, ErrorMessage } from "formik";
-import * as Yup from "yup";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Eye, EyeOff, UserPlus, ArrowLeft, Loader2 } from "lucide-react";
-import Header from "@/components/Header";
-import { api } from "@/lib/api";
-import { useToast } from "@/hooks/use-toast";
-import emailJSService from "@/services/emailjs.service";
-import { useAuth } from "@/contexts/AuthContext";
+import React, { useState } from 'react';
+import { Link, useLocation } from 'wouter';
+import { Formik, Form, Field, ErrorMessage } from 'formik';
+import * as Yup from 'yup';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Loader2, Eye, EyeOff } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
+import { useToast } from '@/hooks/use-toast';
+import emailJSService from '@/services/emailjs.service';
 
 export default function Register() {
   const [, setLocation] = useLocation();
   const { register, isLoading } = useAuth();
   const { toast } = useToast();
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const registerSchema = Yup.object().shape({
     username: Yup.string()
@@ -42,254 +42,248 @@ export default function Register() {
 
   const handleSubmit = async (values, { setSubmitting, setFieldError }) => {
     try {
-      console.log('Submitting registration form with values:', values);
+      setSubmitting(true);
       
-      // Register user with backend - backend will generate OTP
-      const response = await api.post('/auth/register', {
+      // Generate OTP for email verification
+      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+      
+      // Store registration data temporarily
+      const registrationData = {
         username: values.username.trim(),
         email: values.email.trim().toLowerCase(),
         password: values.password,
-        referralCode: values.referralCode?.trim().toUpperCase() || null
-      });
-
-      console.log('Registration response:', response.data);
-
-      if (response.data.success) {
-        const { userId, email, otp } = response.data.data;
-        
-        // Send verification email using frontend emailjs with actual OTP from backend
-        await emailJSService.sendVerificationEmail(
-          email,
-          values.username.trim(),
-          otp,
-          null
-        );
-
-        toast({
-          title: "Registration Successful",
-          description: "Please check your email to verify your account",
-          className: "bg-emerald-500/90 border-emerald-400/50 text-white backdrop-blur-sm",
-        });
-
-        // Store verification data in localStorage for verify-email page
-        localStorage.setItem('verificationData', JSON.stringify({
-          email: email,
-          otp: otp,
-          userId: userId
-        }));
-        
-        // Redirect to OTP verification page
-        setLocation(`/verify-email?email=${encodeURIComponent(email)}`);
-      } else {
-        throw new Error(response.data.message || 'Registration failed');
-      }
-    } catch (error) {
-      console.error('Registration error:', {
-        message: error.response?.data?.message,
-        status: error.response?.status,
-        data: error.response?.data,
-        error: error.message
-      });
+        referralCode: values.referralCode?.trim().toUpperCase() || null,
+        otp: otp,
+        timestamp: Date.now()
+      };
       
-      const errorData = error.response?.data;
-      const errorMessage = errorData?.message || 'Registration failed. Please try again.';
+      // Store in localStorage for verification
+      localStorage.setItem('pendingVerification', JSON.stringify({
+        email: values.email.trim().toLowerCase(),
+        otp: otp,
+        registrationData: registrationData
+      }));
       
-      // Handle specific error types
-      if (errorData?.field === 'email' || errorMessage.includes('email')) {
-        setFieldError('email', errorMessage);
-      } else if (errorData?.field === 'username' || errorMessage.includes('username')) {
-        setFieldError('username', errorMessage);
-      } else if (errorData?.field === 'referralCode' || errorMessage.includes('referral')) {
-        setFieldError('referralCode', errorMessage);
-      } else {
-        setFieldError('email', errorMessage);
-      }
-      
+      // Send verification email using frontend emailjs
+      await emailJSService.sendVerificationEmail(
+        values.email.trim().toLowerCase(),
+        values.username.trim(),
+        otp
+      );
+
       toast({
-        title: "Registration Error",
-        description: errorMessage,
-        variant: "destructive",
-        className: "bg-red-500/90 border-red-400/50 text-white backdrop-blur-sm",
+        title: "Registration Successful",
+        description: "Please check your email to verify your account",
       });
+
+      // Redirect to OTP verification page
+      setLocation(`/verify-email?email=${encodeURIComponent(values.email.trim().toLowerCase())}`);
+      
+    } catch (error) {
+      console.error('Registration error:', error);
+      const errorMessage = error.message || 'Registration failed. Please try again.';
+      setFieldError('submit', errorMessage);
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8">
-        <div className="text-center">
-          <div className="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-gradient-to-r from-blue-600 to-purple-600">
-            <UserPlus className="h-8 w-8 text-white" />
+    <div className="min-h-screen flex flex-col md:flex-row">
+      {/* Left side - Image */}
+      <div className="hidden md:block md:w-1/2 bg-gradient-to-br from-purple-600 to-pink-800">
+        <div className="h-full flex items-center justify-center p-12">
+          <div className="text-center text-white">
+            <h1 className="text-4xl font-bold mb-4">Welcome to 786Bet!</h1>
+            <p className="text-xl opacity-90">Create your account and start your gaming journey.</p>
           </div>
-          <h2 className="mt-6 text-3xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-            Create Account
-          </h2>
-          <p className="mt-2 text-gray-300">
-            Join 786Bet and start your gaming journey
-          </p>
         </div>
-
-        <Formik
-          initialValues={{
-            username: '',
-            email: '',
-            password: '',
-            confirmPassword: '',
-            referralCode: '',
-          }}
-          validationSchema={registerSchema}
-          onSubmit={handleSubmit}
-        >
-          {({ errors, touched, isSubmitting }) => (
-            <Form className="space-y-6">
-              <div>
-                <Label htmlFor="username" className="block text-sm font-medium text-gray-200 mb-2">
-                  Username
-                </Label>
-                <Field
-                  as={Input}
-                  type="text"
-                  name="username"
-                  id="username"
-                  placeholder="Enter your username"
-                  className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
-                />
-                <ErrorMessage name="username" component="div" className="text-red-400 text-sm mt-1" />
-              </div>
-
-              <div>
-                <Label htmlFor="email" className="block text-sm font-medium text-gray-200 mb-2">
-                  Email Address
-                </Label>
-                <Field
-                  as={Input}
-                  type="email"
-                  name="email"
-                  id="email"
-                  placeholder="Enter your email"
-                  className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
-                />
-                <ErrorMessage name="email" component="div" className="text-red-400 text-sm mt-1" />
-              </div>
-              <div>
-              <Label htmlFor="password" className="block text-sm font-medium text-gray-200 mb-2">
-                  Password
-                </Label>
-              <PasswordField errors={errors} touched={touched} />
-              </div>
-              <div>
-              <Label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-200 mb-2">
-                  Confirm Password
-                </Label>
-              <ConfirmPasswordField errors={errors} touched={touched} />
-              </div>  
-              <div>
-                <Label htmlFor="referralCode" className="block text-sm font-medium text-gray-200 mb-2">
-                  Referral Code (Optional)
-                </Label>
-                <Field
-                  as={Input}
-                  type="text"
-                  name="referralCode"
-                  id="referralCode"
-                  placeholder="Enter referral code"
-                  className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
-                />
-                <ErrorMessage name="referralCode" component="div" className="text-red-400 text-sm mt-1" />
-              </div>
-
-              <Button
-                type="submit"
-                disabled={isSubmitting}
-                className="w-full bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 hover:from-blue-600 hover:via-purple-600 hover:to-pink-600 text-white font-bold py-3 px-4 rounded-lg transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
-              >
-                {isSubmitting ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Creating Account...
-                  </>
-                ) : (
-                  'Create Account'
-                )}
-              </Button>
-
-              <div className="text-center">
-                <p className="text-sm text-gray-300">
-                  Already have an account?{' '}
-                  <Link href="/login" className="font-medium text-blue-400 hover:text-blue-300 transition-colors duration-200">
-                    Sign in here
-                  </Link>
-                </p>
-              </div>
-            </Form>
-          )}
-        </Formik>
       </div>
-    </div>
-  );
-}
 
-function PasswordField({ errors, touched }) {
-  const [showPassword, setShowPassword] = useState(false);
-  return (
-    <div>
-      <div className="relative">
-        <Field
-          as={Input}
-          type={showPassword ? "text" : "password"}
-          name="password"
-          id="password"
-          placeholder="Create a password"
-          className={`w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 pr-10 ${
-            errors.password && touched.password ? 'border-red-500' : ''
-          }`}
-        />
-        <button
-          type="button"
-          className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-300 focus:outline-none"
-          onClick={() => setShowPassword(!showPassword)}
-        >
-          {showPassword ? (
-            <EyeOff className="h-5 w-5" />
-          ) : (
-            <Eye className="h-5 w-5" />
-          )}
-        </button>
-      </div>
-      <ErrorMessage name="password" component="div" className="text-red-400 text-sm mt-1" />
-    </div>
-  );
-}
-
-  function ConfirmPasswordField({ errors, touched }) {
-    const [showPassword, setShowPassword] = useState(false);
-
-    return (
-      <div>
-        <div className="relative">
-          <Field
-            as={Input}
-            type={showPassword ? "text" : "password"}
-            name="confirmPassword"
-            id="confirmPassword"
-            placeholder="Confirm your password"
-            className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 pr-10 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
-          />
-          <button
-            type="button"
-            className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-300 focus:outline-none"
-            onClick={() => setShowPassword(!showPassword)}
+      {/* Right side - Register Form */}
+      <div className="w-full md:w-1/2 flex items-center justify-center p-6 md:p-12 flex-col">
+        <div className="w-full max-w-md">
+          <div className="mb-8 text-center">
+            <Link href="/">
+              <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-br from-purple-600 to-pink-600 rounded-full flex items-center justify-center">
+                <span className="text-white font-bold text-xl">786</span>
+              </div>
+            </Link>
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Create your account</h2>
+            <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+              Already have an account?{' '}
+              <Link href="/login" className="font-medium text-purple-600 hover:text-purple-500 dark:text-purple-400 hover:underline">
+                Sign in
+              </Link>
+            </p>
+          </div>
+          <Formik
+            initialValues={{
+              username: '',
+              email: '',
+              password: '',
+              confirmPassword: '',
+              referralCode: '',
+            }}
+            validationSchema={registerSchema}
+            onSubmit={handleSubmit}
           >
-            {showPassword ? (
-              <EyeOff className="h-5 w-5" />
-            ) : (
-              <Eye className="h-5 w-5" />
+            {({ errors, isSubmitting, touched }) => (
+              <Form className="space-y-6">
+                {errors.submit && (
+                  <div className="rounded-md bg-red-50 dark:bg-red-900/20 p-4">
+                    <div className="flex">
+                      <div className="ml-3">
+                        <h3 className="text-sm font-medium text-red-800 dark:text-red-200">
+                          {errors.submit}
+                        </h3>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <Label htmlFor="username" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Username
+                  </Label>
+                  <div className="mt-1">
+                    <Field
+                      id="username"
+                      name="username"
+                      type="text"
+                      autoComplete="username"
+                      required
+                      className="appearance-none block w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm dark:bg-gray-800 dark:text-white text-gray-900"
+                      placeholder="Choose a username"
+                    />
+                    <ErrorMessage name="username" component="div" className="mt-1 text-sm text-red-600 dark:text-red-400" />
+                  </div>
+                </div>
+
+                <div>
+                  <Label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Email address
+                  </Label>
+                  <div className="mt-1">
+                    <Field
+                      id="email"
+                      name="email"
+                      type="email"
+                      autoComplete="email"
+                      required
+                      className="appearance-none block w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm dark:bg-gray-800 dark:text-white text-gray-900"
+                      placeholder="Enter your email"
+                    />
+                    <ErrorMessage name="email" component="div" className="mt-1 text-sm text-red-600 dark:text-red-400" />
+                  </div>
+                </div>
+
+                <div>
+                  <Label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Password
+                  </Label>
+                  <div className="mt-1">
+                    <div className="relative">
+                      <Field
+                        id="password"
+                        name="password"
+                        type={showPassword ? 'text' : 'password'}
+                        autoComplete="new-password"
+                        required
+                        className="appearance-none block w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm dark:bg-gray-800 dark:text-white text-gray-900 pr-10"
+                        placeholder="Create a password"
+                      />
+                      <button
+                        type="button"
+                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-500 dark:text-gray-500 dark:hover:text-gray-400 h-full"
+                        onClick={() => setShowPassword(!showPassword)}
+                      >
+                        {showPassword ? (
+                          <EyeOff className="h-5 w-5" aria-hidden="true" />
+                        ) : (
+                          <Eye className="h-5 w-5" aria-hidden="true" />
+                        )}
+                      </button>
+                    </div>
+                    <ErrorMessage name="password" component="div" className="mt-1 text-sm text-red-600 dark:text-red-400" />
+                  </div>
+                </div>
+
+                <div>
+                  <Label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Confirm Password
+                  </Label>
+                  <div className="mt-1">
+                    <div className="relative">
+                      <Field
+                        id="confirmPassword"
+                        name="confirmPassword"
+                        type={showConfirmPassword ? 'text' : 'password'}
+                        autoComplete="new-password"
+                        required
+                        className="appearance-none block w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm dark:bg-gray-800 dark:text-white text-gray-900 pr-10"
+                        placeholder="Confirm your password"
+                      />
+                      <button
+                        type="button"
+                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-500 dark:text-gray-500 dark:hover:text-gray-400 h-full"
+                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                      >
+                        {showConfirmPassword ? (
+                          <EyeOff className="h-5 w-5" aria-hidden="true" />
+                        ) : (
+                          <Eye className="h-5 w-5" aria-hidden="true" />
+                        )}
+                      </button>
+                    </div>
+                    <ErrorMessage name="confirmPassword" component="div" className="mt-1 text-sm text-red-600 dark:text-red-400" />
+                  </div>
+                </div>
+
+                <div>
+                  <Label htmlFor="referralCode" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Referral Code (Optional)
+                  </Label>
+                  <div className="mt-1">
+                    <Field
+                      id="referralCode"
+                      name="referralCode"
+                      type="text"
+                      className="appearance-none block w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm dark:bg-gray-800 dark:text-white text-gray-900"
+                      placeholder="Enter referral code"
+                    />
+                    <ErrorMessage name="referralCode" component="div" className="mt-1 text-sm text-red-600 dark:text-red-400" />
+                  </div>
+                </div>
+
+                <Button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-medium py-2 px-4 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 disabled:opacity-50"
+                >
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Creating Account...
+                    </>
+                  ) : (
+                    'Create Account'
+                  )}
+                </Button>
+
+                <div className="text-center">
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    Already have an account?{' '}
+                    <Link href="/login" className="font-medium text-purple-600 hover:text-purple-500 dark:text-purple-400">
+                      Sign in
+                    </Link>
+                  </p>
+                </div>
+              </Form>
             )}
-          </button>
+          </Formik>
         </div>
-        <ErrorMessage name="confirmPassword" component="div" className="text-red-400 text-sm mt-1" />
       </div>
-    );
-  }
+    </div>
+  );
+}

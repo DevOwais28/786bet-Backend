@@ -15,8 +15,9 @@ import axios from 'axios';
 // API Service Class
 class ApiService {
   constructor() {
-    // Use absolute URL in development to ensure proper proxy handling
-    this.baseURL = 'https://786bet-backend-production-2302.up.railway.app/api';
+    // Use local backend for development, production URL for deployment
+    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    this.baseURL = isLocal ? 'http://localhost:4000' : 'https://786bet-backend-production-2302.up.railway.app';
     this.api = axios.create({
       baseURL: this.baseURL,
       timeout: 10000,
@@ -49,16 +50,41 @@ class ApiService {
         const originalRequest = error.config;
         
         // Skip refresh-token dance on login/register endpoints
-        const skipRefresh = originalRequest.url.includes('/auth/login') ||
-                           originalRequest.url.includes('/auth/register');
-        const authErrors = [401, 403, 498];
-        if (authErrors.includes(error.response?.status)) {
-          // Force logout on any auth failure (no refresh token available)
-          sessionStorage.removeItem('authToken');
-          localStorage.removeItem('refreshToken');
-          this.setAuthToken(null);
-          window.location.href = '/login';
+        const skipRefresh = originalRequest.url.includes('/api/auth/login') ||
+                         originalRequest.url.includes('/api/auth/register') ||
+                         originalRequest.url.includes('/api/auth/refresh-token');
+        
+        // If error is not 401 or we should skip refresh, reject immediately
+        if (error.response?.status !== 401 || skipRefresh) {
           return Promise.reject(error);
+        }
+        
+        // Mark the request as a retry to prevent infinite loops
+        if (originalRequest._retry) {
+          return Promise.reject(error);
+        }
+        
+        originalRequest._retry = true;
+        
+        try {
+          // Try to refresh the token
+          const refreshUrl = `${this.baseURL}/api/auth/refresh-token`;
+          console.log('[API] Refreshing token at:', refreshUrl);
+          const response = await axios.post(refreshUrl, {}, {
+            withCredentials: true
+          });
+          
+          // If refresh was successful, retry the original request
+          if (response.data.success) {
+            return this.api(originalRequest);
+          }
+        } catch (refreshError) {
+          console.error('Failed to refresh token:', refreshError);
+          // If refresh fails, clear auth state and redirect to login
+          if (typeof window !== 'undefined') {
+            localStorage.removeItem('isAuthenticated');
+            window.location.href = '/login';
+          }
         }
         
         return Promise.reject(error);
@@ -89,7 +115,7 @@ class ApiService {
           originalRequest._retry = true;
           
           // Check if this is a refresh token failure
-          if (originalRequest.url?.includes('/auth/refresh-token')) {
+          if (originalRequest.url?.includes('/api/auth/refresh-token')) {
             console.error('Refresh token expired, forcing re-authentication');
             // Let auth context handle the failure gracefully
             return Promise.reject(error);
@@ -150,7 +176,7 @@ class ApiService {
         const token = sessionStorage.getItem('authToken');
         if (!token) return false;
         
-        const response = await this.api.get('/auth/check-auth');
+        const response = await this.api.get('/api/auth/check-auth');
         return response.data?.success === true;
       } catch (error) {
         return false;
@@ -160,7 +186,7 @@ class ApiService {
     // Add checkAuth method for persistent authentication
     this.checkAuth = async () => {
       try {
-        const response = await this.api.get('/auth/check-auth');
+        const response = await this.api.get('/api/auth/check-auth');
         return response.data;
       } catch (error) {
         console.error('Auth check failed:', error);
@@ -172,7 +198,7 @@ class ApiService {
   // Authentication
   async logout() {
     try {
-      const response = await this.api.post('/auth/logout');
+      const response = await this.api.post('/api/auth/logout');
       // Clear local storage
       sessionStorage.removeItem('authToken');
       localStorage.removeItem('refreshToken');
@@ -194,15 +220,30 @@ class ApiService {
     };
     
     console.log('[API] Login attempt with clean data:', cleanCredentials);
-    const response = await axios.post(`${this.baseURL}/auth/login`, cleanCredentials, {
+    const loginUrl = `${this.baseURL}/api/auth/login`;
+    console.log('[API] Login URL:', loginUrl);
+    const response = await axios.post(loginUrl, cleanCredentials, {
       withCredentials: true,
     });
-    // Force token storage regardless of response structure
-    const token = response.data?.token || response.data?.accessToken || response.data?.data?.token;
+    
+    console.log('[API] Login response:', response);
+    console.log('[API] Response data:', response.data);
+    console.log('[API] Response structure:', {
+      hasToken: !!response.data?.token,
+      hasAccessToken: !!response.data?.accessToken,
+      hasDataToken: !!response.data?.data?.token,
+      hasData: !!response.data?.data,
+      fullResponse: response
+    });
+    
+    // Enhanced token extraction with debug
+    const token = response.data?.token || response.data?.accessToken || response.data?.data?.token || response.data?.data?.accessToken;
     if (token) {
       sessionStorage.setItem('authToken', token);
       this.setAuthToken(token);
-      console.log('[API] Token stored:', token);
+      console.log('[API] Token stored successfully:', token.substring(0, 20) + '...');
+    } else {
+      console.error('[API] No token found in response!');
     }
     
     // Store refresh token if provided
@@ -217,39 +258,65 @@ class ApiService {
   async register(userData) {
     try {
       console.log('[API] Registering user with data:', userData);
-      const response = await axios.post(`${this.baseURL}/auth/register`, userData, {
+      const registerUrl = `${this.baseURL}/api/auth/register`;
+      console.log('[API] Registration URL:', registerUrl);
+      
+      const response = await axios.post(registerUrl, userData, {
         validateStatus: (status) => status < 500,
         withCredentials: true,
+        headers: {
+          'Content-Type': 'application/json',
+        }
       });
       
-      console.log('[API] Registration response:', response.data);
+      console.log('[API] Registration response:', response);
+      console.log('[API] Registration status:', response.status);
+      console.log('[API] Registration data:', response.data);
+      
+      // Enhanced token extraction for registration
+      const token = response.data?.token || response.data?.accessToken || response.data?.data?.token || response.data?.data?.accessToken;
+      if (token) {
+        sessionStorage.setItem('authToken', token);
+        this.setAuthToken(token);
+        console.log('[API] Registration token stored:', token.substring(0, 20) + '...');
+      } else {
+        console.error('[API] No token found in registration response!');
+      }
+      
+      const refreshToken = response.data?.refreshToken || response.data?.data?.refreshToken;
+      if (refreshToken) {
+        localStorage.setItem('refreshToken', refreshToken);
+        console.log('[API] Registration refresh token stored');
+      }
+      
       return response.data;
     } catch (error) {
-      console.error('[API] Registration error:', {
+      console.error('[API] Registration error details:', {
         message: error.message,
         response: error.response?.data,
         status: error.response?.status,
-        headers: error.response?.headers
+        url: `${this.baseURL}/auth/register`
       });
       
-      // Format error message from response if available
-      const errorMessage = error.response?.data?.message || 
-                         error.message || 
-                         'Registration failed. Please try again.';
-      
-      throw new Error(errorMessage);
+      if (error.response?.status === 400) {
+        throw new Error(error.response?.data?.message || 'Registration failed: Invalid data provided');
+      } else if (error.response?.status === 409) {
+        throw new Error('Email or username already exists');
+      } else {
+        throw new Error(error.response?.data?.message || 'Registration failed');
+      }
     }
   }
 
   async verify2FA(code) {
-    const response = await this.api.post('/auth/2fa', { code });
+    const response = await this.api.post('/api/auth/2fa', { code });
     return response.data;
   }
 
   // User Profile
   async getUserProfile() {
     try {
-      const response = await this.api.get('/users/me');
+      const response = await this.api.get('/api/users/me');
       return response.data;
     } catch (error) {
       if (error.response?.status === 401) {
@@ -261,12 +328,12 @@ class ApiService {
   }
 
   async updateUserProfile(data) {
-    const response = await this.api.put('/users/profile', data);
+    const response = await this.api.put('/api/users/profile', data);
     return response.data;
   }
 
   async uploadAvatar(formData) {
-    const response = await this.api.post('/users/avatar', formData, {
+    const response = await this.api.post('/api/users/avatar', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
@@ -276,24 +343,24 @@ class ApiService {
 
   // 2FA Management
   async setup2FA() {
-    const response = await this.api.get('/auth/2fa/setup');
+    const response = await this.api.get('/api/auth/2fa/setup');
     return response.data;
   }
 
   async verify2FASetup(token) {
-    const response = await this.api.post('/auth/2fa', { token });
+    const response = await this.api.post('/api/auth/2fa', { token });
     return response.data;
   }
 
   async updateProfile(data) {
-    const response = await this.api.put('/profile/me', data);
+    const response = await this.api.put('/api/profile/me', data);
     return response.data;
   }
 
   // Payment Methods
   async getPaymentMethods() {
     try {
-      const response = await this.api.get('/payments/methods');
+      const response = await this.api.get('/api/payments/methods');
       return response.data;
     } catch (error) {
       console.error('Error fetching payment methods:', error);
@@ -311,7 +378,7 @@ class ApiService {
   // Deposits
   async createDeposit(depositData) {
     try {
-      const response = await this.api.post('/payments/deposit', depositData);
+      const response = await this.api.post('/api/payments/deposit', depositData);
       return response.data;
     } catch (error) {
       console.error('Deposit error:', error);
@@ -322,7 +389,7 @@ class ApiService {
   // Withdrawals
   async createWithdrawal(withdrawalData) {
     try {
-      const response = await this.api.post('/payments/withdraw', withdrawalData);
+      const response = await this.api.post('/api/payments/withdraw', withdrawalData);
       return response.data;
     } catch (error) {
       console.error('Withdrawal error:', error);
@@ -333,7 +400,7 @@ class ApiService {
   // Transactions
   async getTransactions(params = {}) {
     try {
-      const response = await this.api.get('/payments/transactions', { params });
+      const response = await this.api.get('/api/payments/transactions', { params });
       return response.data;
     } catch (error) {
       console.error('Error fetching transactions:', error);
@@ -348,18 +415,18 @@ class ApiService {
       formData.append('referenceNumber', referenceNumber);
     }
 
-    const response = await api.post(`/deposit/deposit/upload-proof`, formData);
+    const response = await api.post(`/api/deposit/upload-proof`, formData);
     return response.data;
   }
 
   // Password Reset
   async forgotPassword(email) {
-    const response = await this.api.post('/auth/forgot-password', { email });
+    const response = await this.api.post('/api/auth/forgot-password', { email });
     return response.data;
   }
 
   async resetPassword(token, newPassword) {
-    const response = await this.api.post('/auth/reset-password', { 
+    const response = await this.api.post('/api/auth/reset-password', { 
       token, 
       newPassword 
     });
@@ -368,18 +435,18 @@ class ApiService {
 
   async getDepositProofs(status) {
     const params = status ? `?status=${status}` : '';
-    const response = await api.get(`/deposit/deposit-proofs${params}`);
+    const response = await api.get(`/api/deposit/deposit-proofs${params}`);
     return response.data;
   }
 
   async updateDepositStatus(proofId, status, reason) {
-    const response = await this.api.put(`/deposit/deposit-proofs/${proofId}`, { status, reason });
+    const response = await this.api.put(`/api/deposit/deposit-proofs/${proofId}`, { status, reason });
     return response.data;
   }
 
   // Payment Methods
   async createDeposit(depositData) {
-    const response = await this.api.post('/payments/deposit', depositData);
+    const response = await this.api.post('/api/payments/deposit', depositData);
     return response.data;
   }
 
@@ -388,7 +455,7 @@ class ApiService {
   async uploadPaymentProof(depositId, file) {
     const formData = new FormData();
     formData.append('proof', file);
-    const response = await this.api.post(`/deposits/${depositId}/proof`, formData, {
+    const response = await this.api.post(`/api/deposits/${depositId}/proof`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     });
     return response.data;
@@ -396,33 +463,33 @@ class ApiService {
 
   // Game Endpoints
   async getGameHistory() {
-    const response = await this.api.get('/bets/history');
+    const response = await this.api.get('/api/bets/history');
     return response.data;
   }
 
   async placeBet(betData) {
-    const response = await this.api.post('/games/bet', betData);
+    const response = await this.api.post('/api/games/bet', betData);
     return response.data;
   }
 
   async cashOut(gameId) {
-    const response = await this.api.post(`/games/${gameId}/cashout`);
+    const response = await this.api.post(`/api/games/${gameId}/cashout`);
     return response.data;
   }
 
   // Admin Endpoints
   async getAllDeposits() {
-    const response = await this.api.get('/admin/deposits');
+    const response = await this.api.get('/api/admin/deposits');
     return response.data;
   }
 
   async approveDeposit(depositId) {
-    const response = await this.api.post(`/admin/deposits/${depositId}/approve`);
+    const response = await this.api.post(`/api/admin/deposits/${depositId}/approve`);
     return response.data;
   }
 
   async rejectDeposit(depositId, reason) {
-    const response = await this.api.post(`/admin/deposits/${depositId}/reject`, { reason });
+    const response = await this.api.post(`/api/admin/deposits/${depositId}/reject`, { reason });
     return response.data;
   }
 
@@ -431,13 +498,13 @@ class ApiService {
 
   // Referrals
   async getReferrals() {
-    const response = await this.api.get('/referrals');
+    const response = await this.api.get('/api/referrals');
     return response.data;
   }
 
   // Withdrawals
   async createWithdrawal(data) {
-    const response = await this.api.post('/payments/withdraw', data);
+    const response = await this.api.post('/api/payments/withdraw', data);
     return response.data;
   }
 
@@ -445,44 +512,44 @@ class ApiService {
     const formData = new FormData();
     formData.append('screenshot', file);
 
-    const response = await this.api.post('/withdrawal/upload-withdrawal-screenshot', formData);
+    const response = await this.api.post('/api/withdrawal/upload-withdrawal-screenshot', formData);
     return response.data;
   }
 
   async getWithdrawalHistory() {
-    const response = await this.api.get('/payments/transactions?type=withdrawal');
+    const response = await this.api.get('/api/payments/transactions?type=withdrawal');
     return response.data;
   }
 
   // Game Logic (Aviator)
   async getCurrentGame() {
-    const response = await this.api.get('/games/current');
+    const response = await this.api.get('/api/games/current');
     return response.data;
   }
 
   async getGameSettings() {
-    const response = await this.api.get('/games/settings');
+    const response = await this.api.get('/api/games/settings');
     return response.data;
   }
 
   async getGameHistory(limit = 10) {
-    const response = await this.api.get(`/games/history?limit=${limit}`);
+    const response = await this.api.get(`/api/games/history?limit=${limit}`);
     return response.data;
   }
 
   // Aviator Game Endpoints
   async placeBet(amount) {
-    const response = await this.api.post('/bets/place', { amount });
+    const response = await this.api.post('/api/bets/place', { amount });
     return response.data;
   }
 
   async cashOut(betId, multiplier) {
-    const response = await this.api.post('/bets/cashout', { betId, multiplier });
+    const response = await this.api.post('/api/bets/cashout', { betId, multiplier });
     return response.data;
   }
 
   async getBetHistory(limit = 10) {
-    const response = await this.api.get(`/bets/history?limit=${limit}`);
+    const response = await this.api.get(`/api/bets/history?limit=${limit}`);
     return response.data.map(bet => ({
       ...bet,
       betAmount: bet.amount,
@@ -493,18 +560,18 @@ class ApiService {
   }
 
   async getActiveBets(roundNumber) {
-    const response = await this.api.get(`/bets/active/${roundNumber}`);
+    const response = await this.api.get(`/api/bets/active/${roundNumber}`);
     return response.data;
   }
 
   // Wallet
   async getWalletBalance() {
-    const response = await this.api.get('/users/dashboard');
+    const response = await this.api.get('/api/users/dashboard');
     return response.data;
   }
 
   async getTransactionHistory(limit = 20) {
-    const response = await this.api.get(`/payments/transactions?limit=${limit}`);
+    const response = await this.api.get(`/api/payments/transactions?limit=${limit}`);
     return response.data;
   }
 }
