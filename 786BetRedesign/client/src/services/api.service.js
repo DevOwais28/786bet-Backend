@@ -15,14 +15,16 @@ import axios from 'axios';
 // API Service Class
 class ApiService {
   constructor() {
-    // Use local backend for development, production URL for deployment
-  const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-  const envUrl = import.meta.env.VITE_API_URL;
-     if (envUrl) {
-      this.baseURL = envUrl; // Remove /api if present
+    // Use environment variable or detect environment automatically
+    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    const envUrl = import.meta.env.VITE_API_URL;
+    
+    if (envUrl) {
+      this.baseURL = envUrl.replace(/\/$/, ''); // Remove trailing slash
     } else {
       this.baseURL = isLocal ? 'http://localhost:4000' : 'https://786bet-backend-production-2302.up.railway.app';
     }
+    
     this.api = axios.create({
       baseURL: this.baseURL,
       timeout: 10000,
@@ -127,15 +129,26 @@ class ApiService {
           }
           
           try {
-            // Try to refresh token using cookies (no explicit token needed)
-            const refreshResponse = await axios.post(`${this.baseURL}/auth/refresh-token`, {}, {
-              withCredentials: true
-            });
-            
-            if (refreshResponse.data?.success) {
-              console.log('Token refreshed successfully');
-              // Cookies handle the token automatically, retry original request
-              return this.api(originalRequest);
+            try {
+              console.log('Attempting token refresh...');
+              const refreshResponse = await axios.post(`${this.baseURL}/api/auth/refresh-token`, {}, {
+                withCredentials: true
+              });
+              
+              if (refreshResponse.data?.success) {
+                console.log('Token refreshed successfully');
+                // Cookies handle the token automatically, retry original request
+                return this.api(originalRequest);
+              } else {
+                // Refresh failed, handle auth failure
+                this.handleAuthFailure();
+                return Promise.reject(refreshError);
+              }
+            } catch (refreshError) {
+              console.error('Token refresh failed:', refreshError);
+              // Handle auth failure gracefully
+              this.handleAuthFailure();
+              return Promise.reject(refreshError);
             }
           } catch (refreshError) {
             console.error('Token refresh failed:', refreshError);
@@ -204,15 +217,17 @@ class ApiService {
   async logout() {
     try {
       const response = await this.api.post('/api/auth/logout');
-      // Clear local storage
-      sessionStorage.removeItem('authToken');
-      localStorage.removeItem('refreshToken');
+      // Clear all local storage for cookie-based auth
+      sessionStorage.clear();
+      localStorage.removeItem('isAuthenticated');
+      localStorage.removeItem('user');
       return response.data;
     } catch (error) {
       console.error('Logout error:', error);
       // Still clear local storage even if backend call fails
-      sessionStorage.removeItem('authToken');
-      localStorage.removeItem('refreshToken');
+      sessionStorage.clear();
+      localStorage.removeItem('isAuthenticated');
+      localStorage.removeItem('user');
       return { success: true };
     }
   }
@@ -241,21 +256,8 @@ class ApiService {
       fullResponse: response
     });
     
-    // Enhanced token extraction with debug
-    const token = response.data?.token || response.data?.accessToken || response.data?.data?.token || response.data?.data?.accessToken;
-    if (token) {
-      sessionStorage.setItem('authToken', token);
-      this.setAuthToken(token);
-      console.log('[API] Token stored successfully:', token.substring(0, 20) + '...');
-    } else {
-      console.error('[API] No token found in response!');
-    }
-    
-    // Store refresh token if provided
-    const refreshToken = response.data?.refreshToken || response.data?.data?.refreshToken;
-    if (refreshToken) {
-      localStorage.setItem('refreshToken', refreshToken);
-    }
+    // Cookies handle authentication automatically, no need to store tokens
+    console.log('[API] Login successful - cookies handle authentication');
     
     return response.data;
   }
