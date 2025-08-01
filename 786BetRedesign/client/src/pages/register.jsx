@@ -44,24 +44,46 @@ export default function Register() {
     try {
       setSubmitting(true);
       
-      // Generate OTP for email verification
-      const otp = Math.floor(100000 + Math.random() * 900000).toString();
-      
-      // Store registration data temporarily
+      // First, register the user with the backend
       const registrationData = {
         username: values.username.trim(),
         email: values.email.trim().toLowerCase(),
         password: values.password,
-        referralCode: values.referralCode?.trim().toUpperCase() || null,
-        otp: otp,
-        timestamp: Date.now()
+        referralCode: values.referralCode?.trim().toUpperCase() || null
       };
+
+      // Call backend registration endpoint
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:4000'}/api/auth/register`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(registrationData),
+        credentials: 'include' // Include cookies
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        // Handle validation errors and duplicate emails
+        if (result.errors) {
+          Object.keys(result.errors).forEach(field => {
+            setFieldError(field, result.errors[field]);
+          });
+        } else {
+          setFieldError('submit', result.message || 'Registration failed');
+        }
+        return;
+      }
+
+      // Generate OTP for email verification
+      const otp = result.data?.otp || Math.floor(100000 + Math.random() * 900000).toString();
       
-      // Store in localStorage for verification
+      // Store verification data
       localStorage.setItem('pendingVerification', JSON.stringify({
         email: values.email.trim().toLowerCase(),
         otp: otp,
-        registrationData: registrationData
+        userId: result.data?.userId
       }));
       
       // Send verification email using frontend emailjs
