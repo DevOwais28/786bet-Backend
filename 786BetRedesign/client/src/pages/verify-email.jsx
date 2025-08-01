@@ -22,11 +22,11 @@ export default function VerifyEmail() {
 
   useEffect(() => {
     // Check localStorage for verification data
-    const verificationData = localStorage.getItem('verificationData');
+    const verificationData = localStorage.getItem('pendingVerification');
     if (verificationData) {
-      const { email, otp } = JSON.parse(verificationData);
+      const { email } = JSON.parse(verificationData);
       setEmail(email);
-      console.log('Loaded verification data:', { email, hasOtp: !!otp });
+      console.log('Loaded verification data:', { email });
     } else {
       // Fallback to URL parameters if localStorage doesn't have data
       const searchParams = new URLSearchParams(window.location.search);
@@ -64,14 +64,23 @@ export default function VerifyEmail() {
       
       console.log('Verification request:', { email: storedEmail, otp: otp.trim() });
 
-      const response = await api.post('/auth/verify-email', {
-        email: storedEmail,
-        otp: otp.trim()
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:4000'}/api/auth/verify-email`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: storedEmail,
+          otp: otp.trim()
+        }),
+        credentials: 'include'
       });
 
-      if (response.data.success) {
+      const data = await response.json();
+
+      if (data.success) {
         setStatus("success");
-        setMessage(response.data.message);
+        setMessage(data.message);
         
         // Clear localStorage verification data and any cached auth
         localStorage.removeItem('verificationData');
@@ -89,10 +98,10 @@ export default function VerifyEmail() {
         });
       } else {
         setStatus("error");
-        setMessage(response.data.message || "Verification failed.");
+        setMessage(data.message || "Verification failed.");
         toast({
           title: "Error",
-          description: response.data.message || "Verification failed",
+          description: data.message || "Verification failed",
           variant: "destructive",
           className: "bg-red-500/90 border-red-400/50 text-white backdrop-blur-sm",
         });
@@ -143,35 +152,11 @@ export default function VerifyEmail() {
           response.data.data.otp
         );
         
-        console.log('Verification email sent successfully');
-        
-        // Update verification data in localStorage with new OTP
-        if (response.data.data.otp) {
-          const verificationData = { email, otp: response.data.data.otp };
-          localStorage.setItem('verificationData', JSON.stringify(verificationData));
-        }
-        
-        setModalMessage("A new verification email has been sent to your email address.");
+        setModalMessage("New verification email sent successfully!");
         setModalType("success");
-        setShowModal(true);
-        
-        toast({
-          title: "Code Resent",
-          description: "A new verification code has been sent to your email",
-          className: "bg-blue-500/90 border-blue-400/50 text-white backdrop-blur-sm",
-        });
       } else {
-        console.error('Failed to resend verification:', response.data.message);
-        setModalMessage(response.data.message || "Failed to resend verification email.");
+        setModalMessage(data.message || "Failed to resend verification email.");
         setModalType("error");
-        setShowModal(true);
-        
-        toast({
-          title: "Error",
-          description: response.data.message || "Failed to resend code. Please try again.",
-          variant: "destructive",
-          className: "bg-red-500/90 border-red-400/50 text-white backdrop-blur-sm",
-        });
       }
     } catch (error) {
       console.error('Error in handleResendVerification:', error);
