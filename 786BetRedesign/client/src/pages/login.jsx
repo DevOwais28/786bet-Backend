@@ -1,53 +1,46 @@
 // login.tsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'wouter';
 import { Formik, Form, Field, ErrorMessage } from 'formik';
 import * as Yup from 'yup';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { ArrowLeft, Loader2 } from 'lucide-react';
+import { Loader2, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
-import { TwoFactorModal } from '@/components/TwoFactorModal';
 import { VerificationCodeInput } from '@/components/VerificationCodeInput';
-import { Eye, EyeOff } from 'lucide-react';
 import emailJSService from '@/services/emailjs.service';
 import { useToast } from '@/hooks/use-toast';
-import {apiService} from '@/services/api.service';
+import { apiService } from '@/services/api.service';
 
 const Login = () => {
   const [location, setLocation] = useLocation();
   const { login, isLoading, user } = useAuth();
-  const [show2FAModal, setShow2FAModal] = useState(false);
   const [showVerificationModal, setShowVerificationModal] = useState(false);
   const [showEmailModal, setShowEmailModal] = useState(false);
   const [emailForResend, setEmailForResend] = useState('');
-  const [verificationType, setVerificationType] = useState(''); // 'admin', 'email', or 'signup'
+  const [verificationType, setVerificationType] = useState('');
   const [verificationEmail, setVerificationEmail] = useState('');
   const [verificationUserId, setVerificationUserId] = useState('');
-  const [showResendVerification, setShowResendVerification] = useState(false);
-  const [resendEmail, setResendEmail] = useState('');
   const [isResending, setIsResending] = useState(false);
   const [verificationError, setVerificationError] = useState('');
   const [countdown, setCountdown] = useState(0);
   const [showPassword, setShowPassword] = useState(false);
   const { toast } = useToast();
-
-  // Only redirect after successful manual login, not on page refresh
   const [hasAttemptedLogin, setHasAttemptedLogin] = useState(false);
-  
-  React.useEffect(() => {
+
+  // Single redirect effect - removed duplicate
+  useEffect(() => {
     const token = sessionStorage.getItem('authToken');
-    // Only redirect if user manually logged in during this session
     if (user && !isLoading && token && hasAttemptedLogin) {
       const redirectPath = sessionStorage.getItem('redirectAfterLogin') || '/dashboard';
       sessionStorage.removeItem('redirectAfterLogin');
       setLocation(redirectPath);
     }
   }, [user, isLoading, hasAttemptedLogin, setLocation]);
-  
+
   // Handle URL parameters for automatic OTP modal display
-  React.useEffect(() => {
+  useEffect(() => {
     const urlParams = new URLSearchParams(location.split('?')[1] || '');
     const email = urlParams.get('email');
     const userId = urlParams.get('userId');
@@ -58,10 +51,18 @@ const Login = () => {
       setVerificationUserId(userId);
       setVerificationType('signup');
       setShowVerificationModal(true);
-      setShowResendVerification(true);
-      setResendEmail(email);
+      setEmailForResend(email);
     }
   }, [location]);
+
+  // Countdown timer effect
+  useEffect(() => {
+    let timer;
+    if (countdown > 0) {
+      timer = setTimeout(() => setCountdown(countdown - 1), 1000);
+    }
+    return () => clearTimeout(timer);
+  }, [countdown]);
 
   const loginSchema = Yup.object().shape({
     email: Yup.string()
@@ -74,19 +75,15 @@ const Login = () => {
 
   const handleSubmit = async (values, { setSubmitting, setErrors }) => {
     try {
-      // Check if this is an admin email (from environment variables)
       const adminEmails = (import.meta.env.VITE_ADMIN_EMAILS || '').split(',').map(email => email.trim().toLowerCase());
       const isAdminEmail = adminEmails.includes(values.email.toLowerCase());
 
       const response = await login({ email: values.email, password: values.password });
-      console.log('[Login] Response:', response);
-      console.log('[Login] sessionStorage.authToken:', sessionStorage.getItem('authToken'));
-      console.log('[Login] localStorage.refreshToken:', localStorage.getItem('refreshToken'));
-
       
       if (response.success) {
-        setHasAttemptedLogin(true); // ✅ Move this up FIRST
-        // Extract token from cookies
+        setHasAttemptedLogin(true);
+        
+        // Handle token storage
         const cookies = document.cookie.split(';');
         const accessTokenCookie = cookies.find(cookie => 
           cookie.trim().startsWith('accessToken=')
@@ -104,16 +101,8 @@ const Login = () => {
         if (refreshToken) {
           localStorage.setItem('refreshToken', refreshToken);
         }
-        
-        // Redirect to stored path or dashboard
-        setTimeout(() => {
-          const redirectPath = sessionStorage.getItem('redirectAfterLogin') || '/dashboard';
-          sessionStorage.removeItem('redirectAfterLogin');
-          setLocation(redirectPath);
-        }, 100);
 
         if (response.requiresOTP) {
-          // Admin login requires OTP
           setVerificationEmail(values.email);
           setVerificationType('admin_login');
           setShowVerificationModal(true);
@@ -123,27 +112,20 @@ const Login = () => {
             className: "bg-blue-500/90 border-blue-400/50 text-white backdrop-blur-sm",
           });
         } else {
-          // Regular user login successful
+          // Regular user login successful - redirect will happen in useEffect
           toast({
             title: "Login Successful",
             description: "Welcome back!",
             className: "bg-emerald-500/90 border-emerald-400/50 text-white backdrop-blur-sm",
           });
-          const redirectPath = sessionStorage.getItem('redirectAfterLogin') || '/dashboard';
-    sessionStorage.removeItem('redirectAfterLogin');
-    setLocation(redirectPath); // ✅ Single, correct redirect
-        }
         }
       } else {
-        // Handle specific error cases
         if (response.requiresVerification) {
-          console.log('User not verified - triggering verification modal:', values.email);
           setVerificationEmail(values.email);
           setVerificationUserId(response.userId);
           setVerificationType('email');
           setShowVerificationModal(true);
-          setShowResendVerification(true);
-          setResendEmail(values.email);
+          setEmailForResend(values.email);
         } else if (response.error?.toLowerCase().includes('user not found') ||
                    response.error?.toLowerCase().includes('register')) {
           setErrors({ email: 'Account not found. Please register yourself first.' });
@@ -163,46 +145,6 @@ const Login = () => {
       setSubmitting(false);
     }
   };
-
-  const PasswordField = ({ errors, touched }) => {
-    return (
-      <div>
-        <div className="relative">
-          <Field
-            as={Input}
-            type={showPassword ? "text" : "password"}
-            name="password"
-            id="password"
-            placeholder="Enter your password"
-            className={`bg-gray-700 border-gray-600 text-white placeholder-gray-400 pr-10 ${
-              errors.password && touched.password ? 'border-red-500' : ''
-            }`}
-          />
-          <button
-            type="button"
-            className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-300 focus:outline-none"
-            onClick={() => setShowPassword(!showPassword)}
-          >
-            {showPassword ? (
-              <EyeOff className="h-5 w-5" />
-            ) : (
-              <Eye className="h-5 w-5" />
-            )}
-          </button>
-        </div>
-        <ErrorMessage name="password" component="div" className="text-red-400 text-sm mt-1" />
-      </div>
-    );
-  };
-
-  // Countdown timer effect
-  React.useEffect(() => {
-    let timer;
-    if (countdown > 0) {
-      timer = setTimeout(() => setCountdown(countdown - 1), 1000);
-    }
-    return () => clearTimeout(timer);
-  }, [countdown]);
 
   const handleVerifyCode = async (code) => {
     try {
@@ -225,7 +167,12 @@ const Login = () => {
         
         setHasAttemptedLogin(true);
         setShowVerificationModal(false);
-        setLocation('/dashboard');
+        setVerificationError('');
+        
+        // Close modal and let useEffect handle redirect
+        setTimeout(() => {
+          setLocation('/dashboard');
+        }, 100);
       } else {
         setVerificationError(response.data.message || 'Verification failed');
       }
@@ -241,23 +188,19 @@ const Login = () => {
     
     setIsResending(true);
     try {
-      // Use backend endpoint to generate OTP and get userId
       const response = await apiService.api.post('/auth/send-verification', { email });
       
-      if (response.data && response.data.success) {
-        // Check if we have the expected data structure
+      if (response.data?.success) {
         const responseData = response.data.data || response.data;
         const otp = responseData.otp || responseData.token;
-        const userId = responseData.userId || responseData.userId;
+        const userId = responseData.userId;
         
         if (!otp) {
           throw new Error('OTP not found in response');
         }
         
-        // Send email using frontend EmailJS with backend-generated OTP
         await emailJSService.sendVerificationEmail(email, 'User', otp, userId || '');
         
-        // Store verification data in localStorage
         localStorage.setItem('verificationData', JSON.stringify({ 
           email, 
           otp, 
@@ -272,7 +215,6 @@ const Login = () => {
           className: "bg-emerald-500/90 border-emerald-400/50 text-white backdrop-blur-sm",
         });
         
-        setLocation('/verify-email');
         setCountdown(60);
         setShowEmailModal(false);
         setEmailForResend('');
@@ -291,63 +233,11 @@ const Login = () => {
         variant: 'destructive', 
         className: "bg-red-500/90 border-red-400/50 text-white backdrop-blur-sm",
       });
-      console.error('Email sending error:', error);
     } finally {
       setIsResending(false);
     }
   };
 
-  const handleForgotPassword = async (email) => {
-    if (!email) return;
-    
-    try {
-      // Generate OTP for password reset
-      const otp = Math.floor(100000 + Math.random() * 900000).toString();
-      
-      // Send password reset email using frontend emailjs
-      await emailJSService.sendPasswordResetEmail(email, otp);
-      
-      // Store email and OTP in localStorage for password reset
-      localStorage.setItem('passwordResetData', JSON.stringify({
-        email: email,
-        otp: otp,
-        type: 'password-reset',
-        timestamp: Date.now()
-      }));
-      
-      // Show success message
-      toast({
-        title: 'Password Reset Email Sent',
-        description: 'Please check your email for the password reset OTP',
-        variant: 'success',
-        className: 'bg-emerald-500/90 border-emerald-400/50 text-white backdrop-blur-sm',
-      });
-      
-      // Redirect to password reset page
-      setLocation(`/reset-password?email=${encodeURIComponent(email)}`);
-      
-    } catch (error) {
-      console.error('Failed to send password reset email:', error);
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to send password reset email',
-        variant: 'destructive',
-        className: 'bg-red-500/90 border-red-400/50 text-white backdrop-blur-sm',
-      });
-    }
-  };
-
-  const checkEmailExists = async (email) => {
-    try {
-      const response = await apiService.api.post('/auth/check-email', { email });
-      return response.data.exists;
-    } catch (error) {
-      console.error('Error checking email:', error);
-      return false;
-    }
-  };
-
-  // Navigate to forgot password page
   const handleForgotPasswordClick = () => {
     setLocation('/forgot-password');
   };
@@ -456,157 +346,112 @@ const Login = () => {
                   )}
                 </Button>
 
-                <div className="text-center">
+                <div className="text-center space-y-2">
                   <p className="text-gray-400">
                     Don't have an account?{' '}
                     <Link href="/register" className="text-blue-400 hover:text-blue-300 font-medium">
                       Sign up here
                     </Link>
                   </p>
-                </div>
-              </Form>
-            )}
-          </Formik>
-        </div>  
-        {showResendVerification && (
-          <div className="mt-4 p-4 bg-yellow-600/20 border border-yellow-600 rounded-lg">
-            <p className="text-sm text-yellow-400 mb-2">
-              Didn't receive the verification email?
-            </p>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleResendVerification}
-              disabled={isResending || countdown > 0}
-              className="w-full"
-            >
-              {isResending ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Resending...
-                </>
-              ) : countdown > 0 ? (
-                `Resend in ${countdown}s`
-              ) : (
-                <div className="text-center mt-6 space-y-4">
-                  <p className="text-gray-400">
-                    Don't have an account?{' '}
-                    <Link href="/register" className="text-emerald-500 hover:text-emerald-400 font-medium">
-                      Register here
-                    </Link>
-                  </p>
                   <p className="text-sm text-gray-400">
                     Didn't receive verification email?{' '}
                     <button
                       type="button"
-                      onClick={() => {
-                        setShowEmailModal(true);
-                      }}
+                      onClick={() => setShowEmailModal(true)}
                       className="text-yellow-500 hover:text-yellow-400 underline cursor-pointer"
                     >
                       Resend verification email
                     </button>
                   </p>
                 </div>
-              )}
-            </Button>
-          </div>
-        )}
-        
-        <div className="text-sm text-gray-400">
-          <span>Didn't receive verification email?{' '}</span>
-          <button
-            type="button"
-            onClick={() => {
-              setShowEmailModal(true);
-            }}
-            className="text-yellow-500 hover:text-yellow-400 underline cursor-pointer"
-          >
-            Resend verification email
-          </button>
+              </Form>
+            )}
+          </Formik>
         </div>
-      </div>
-      <VerificationCodeInput
-        isOpen={showVerificationModal}
-        onClose={() => {
-          setShowVerificationModal(false);
-          setVerificationError('');
-        }}
-        onVerify={handleVerifyCode}
-        title={verificationType === 'admin' ? 'Admin Login' : 'Email Verification'}
-        email={verificationEmail}
-        isLoading={isLoading}
-        error={verificationError}
-        onResendCode={async () => {
-          try {
-            if (verificationType === 'admin') {
-              await emailJSService.sendAdminLoginOTP(verificationEmail);
-            } else {
-              await emailJSService.sendVerificationEmail(verificationEmail);
-            }
-            toast({
-              title: 'Code Resent',
-              description: 'A new verification code has been sent to your email',
-              variant: "success",
-              className: "bg-emerald-500/90 border-emerald-400/50 text-white backdrop-blur-sm",
-            });
-          } catch (error) {
-            toast({
-              title: "Error",
-              description: error.response?.data?.message || "Login failed",
-              variant: "destructive",
-              className: "bg-red-500/90 border-red-400/50 text-white backdrop-blur-sm",
-            });
-          }
-        }}
-        isResending={isResending}
-        countdown={countdown}
-      />
 
-      {/* Email Modal for Resend Verification */}
-      {showEmailModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-gray-800 rounded-lg p-6 max-w-sm mx-4 border border-gray-700">
-            <h3 className="text-lg font-semibold text-white mb-4">Resend Verification Email</h3>
-            <p className="text-gray-300 mb-4">Enter your email address to receive a new verification email.</p>
-            
-            <Input
-              type="email"
-              placeholder="Enter your email"
-              value={emailForResend}
-              onChange={(e) => setEmailForResend(e.target.value)}
-              className="bg-gray-700 border-gray-600 text-white placeholder-gray-400 mb-4"
-            />
-            
-            <div className="flex gap-2">
-              <Button
-                onClick={() => {
-                  if (emailForResend) {
-                    handleResendVerification(emailForResend);
-                  }
-                }}
-                disabled={!emailForResend || isResending || countdown > 0}
-                className="flex-1 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50"
-              >
-                {isResending ? 'Sending...' : countdown > 0 ? `Wait ${countdown}s` : 'Send Email'}
-              </Button>
+        <VerificationCodeInput
+          isOpen={showVerificationModal}
+          onClose={() => {
+            setShowVerificationModal(false);
+            setVerificationError('');
+          }}
+          onVerify={handleVerifyCode}
+          title={verificationType === 'admin_login' ? 'Admin Login' : 'Email Verification'}
+          email={verificationEmail}
+          isLoading={isLoading}
+          error={verificationError}
+          onResendCode={async () => {
+            try {
+              if (verificationType === 'admin_login') {
+                await emailJSService.sendAdminLoginOTP(verificationEmail);
+              } else {
+                await handleResendVerification(verificationEmail);
+              }
+              toast({
+                title: 'Code Resent',
+                description: 'A new verification code has been sent to your email',
+                variant: "success",
+                className: "bg-emerald-500/90 border-emerald-400/50 text-white backdrop-blur-sm",
+              });
+            } catch (error) {
+              toast({
+                title: "Error",
+                description: error.response?.data?.message || "Failed to resend code",
+                variant: "destructive",
+                className: "bg-red-500/90 border-red-400/50 text-white backdrop-blur-sm",
+              });
+            }
+          }}
+          isResending={isResending}
+          countdown={countdown}
+        />
+
+        {/* Email Modal for Resend Verification */}
+        {showEmailModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-gray-800 rounded-lg p-6 max-w-sm mx-4 border border-gray-700">
+              <h3 className="text-lg font-semibold text-white mb-4">Resend Verification Email</h3>
+              <p className="text-gray-300 mb-4">Enter your email address to receive a new verification email.</p>
               
-              <Button
-                onClick={() => {
-                  setShowEmailModal(false);
-                  setEmailForResend('');
-                }}
-                variant="outline"
-                className="flex-1 border-gray-600 text-gray-300 hover:bg-gray-700"
-              >
-                Cancel
-              </Button>
+              <Input
+                type="email"
+                placeholder="Enter your email"
+                value={emailForResend}
+                onChange={(e) => setEmailForResend(e.target.value)}
+                className="bg-gray-700 border-gray-600 text-white placeholder-gray-400 mb-4"
+              />
+              
+              <div className="flex gap-2">
+                <Button
+                  onClick={() => {
+                    if (emailForResend) {
+                      handleResendVerification(emailForResend);
+                    }
+                  }}
+                  disabled={!emailForResend || isResending || countdown > 0}
+                  className="flex-1 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  {isResending ? 'Sending...' : countdown > 0 ? `Wait ${countdown}s` : 'Send Email'}
+                </Button>
+                
+                <Button
+                  onClick={() => {
+                    setShowEmailModal(false);
+                    setEmailForResend('');
+                  }}
+                  variant="outline"
+                  className="flex-1 border-gray-600 text-gray-300 hover:bg-gray-700"
+                >
+                  Cancel
+                </Button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 };
 
 export default Login;
+    
