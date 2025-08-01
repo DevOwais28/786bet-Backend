@@ -10,6 +10,7 @@ const api = axios.create({
   },
   withCredentials: true, // Enable cookies for refresh tokens
 });
+
 // Request interceptor for auth token
 api.interceptors.request.use(
   (config) => {
@@ -25,15 +26,32 @@ api.interceptors.request.use(
 // Response interceptor for error handling
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
-    const authErrors = [401, 403, 498];
-    if (authErrors.includes(error.response?.status)) {
-      sessionStorage.removeItem('authToken');
-      localStorage.removeItem('authToken');
-      // Clear cookies by forcing logout
-      axios.post(`${API_BASE_URL}/api/auth/logout`, {}, { withCredentials: true }).catch(() => {});
-      window.location.href = '/login';
+  async (error) => {
+    const originalRequest = error.config;
+    
+    // Handle 401 specifically for refresh token issues
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      originalRequest._retry = true;
+      
+      try {
+        // Try to refresh the token
+        await api.post('/api/auth/refresh-token', {}, { withCredentials: true });
+        // Retry the original request
+        return api(originalRequest);
+      } catch (refreshError) {
+        // Refresh failed, clear auth and redirect
+        sessionStorage.removeItem('authToken');
+        localStorage.removeItem('authToken');
+        localStorage.removeItem('isAuthenticated');
+        localStorage.removeItem('user');
+        
+        // Only redirect if not already on login page
+        if (!window.location.pathname.includes('/login')) {
+          window.location.href = '/login';
+        }
+      }
     }
+    
     return Promise.reject(error);
   }
 );
@@ -45,7 +63,7 @@ export const authAPI = {
   register: (userData) =>
     api.post('/api/auth/register', userData),
   logout: () => api.post('/api/auth/logout'),
-  refreshToken: () => api.post('/api/auth/refresh'),
+  refreshToken: () => api.post('/api/auth/refresh-token'),
 };
 
 export const walletAPI = {
