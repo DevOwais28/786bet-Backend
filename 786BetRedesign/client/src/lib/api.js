@@ -8,8 +8,8 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  withCredentials: true, // Enable cookies for refresh tokens
 });
-
 // Request interceptor for auth token
 api.interceptors.request.use(
   (config) => {
