@@ -2,8 +2,11 @@ import axios from 'axios';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
+// Ensure the base URL doesn't end with a slash to avoid double slashes
+const normalizedBaseUrl = API_BASE_URL.replace(/\/$/, '');
+
 const api = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: normalizedBaseUrl,
   timeout: 30000,
   headers: {
     'Content-Type': 'application/json',
