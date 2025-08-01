@@ -237,7 +237,9 @@ const io = new Server(server, {
     methods: ['GET', 'POST']
   }
 });
-
+app.get('/', (req, res) => {
+  res.send('🎉 Backend is working!');
+});
 // Import and initialize GameSocketHandler
 const { GameSocketHandler } = require('./socket/game.socket.js');
 const gameSocketHandler = new GameSocketHandler(io);
@@ -251,7 +253,6 @@ io.on('connection', (socket) => {
     console.log('User disconnected:', socket.id);
   });
 });
-const port = process.env.PORT || 8080;
 // Start server
 server.listen(port, () => {
   console.log(`Server running on port ${port}`);
