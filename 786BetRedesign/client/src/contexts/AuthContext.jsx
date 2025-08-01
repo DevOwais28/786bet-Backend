@@ -153,7 +153,7 @@ function AuthProvider({ children }) {
     try {
       const response = await apiService.login({ email, password });
       
-      // Backend response structure: { success: true, message: "Login successful", token, refreshToken, user: {...} }
+      // Backend response structure: { success: true, message: "Login successful", user: {...} }
       if (response?.success && response?.user) {
         // Store user data in localStorage for persistence
         localStorage.setItem('user', JSON.stringify(response.user));
@@ -161,8 +161,8 @@ function AuthProvider({ children }) {
         
         // Update state
         setUser(response.user);
-        setToken(response.token);
-        apiService.setAuthToken(response.token);
+        setToken('authenticated'); // Use consistent token for cookie-based auth
+        apiService.setAuthToken('authenticated');
         
         return { success: true, user: response.user };
       } else {
