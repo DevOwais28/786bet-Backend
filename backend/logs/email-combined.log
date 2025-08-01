@@ -1,0 +1,30 @@
+{"attempt":1,"email":"ra920453@gmail.com","level":"warn","message":"Email send attempt 1 failed, retrying...","timestamp":"2025-07-29T00:35:33.258Z"}
+{"attempt":2,"email":"ra920453@gmail.com","level":"warn","message":"Email send attempt 2 failed, retrying...","timestamp":"2025-07-29T00:35:34.612Z"}
+{"email":"ra920453@gmail.com","level":"error","message":"Failed to send verification email","timestamp":"2025-07-29T00:35:36.935Z","userId":"6888175222bdb24ea86f6a83"}
+{"email":"ra920453@gmail.com","level":"info","message":"Stored failed verification in database","timestamp":"2025-07-29T00:35:36.999Z","type":"verification"}
+{"attempt":1,"level":"warn","message":"Email send attempt 1 failed, retrying...","timestamp":"2025-07-29T00:52:09.112Z"}
+{"attempt":2,"level":"warn","message":"Email send attempt 2 failed, retrying...","timestamp":"2025-07-29T00:52:10.434Z"}
+{"email":"funcartoonpk@gmail.com","level":"error","message":"Failed to send verification email","timestamp":"2025-07-29T00:52:12.766Z","userId":"68881b3768c126205eeb6c63"}
+{"email":"funcartoonpk@gmail.com","level":"info","message":"Stored failed verification in database","timestamp":"2025-07-29T00:52:12.838Z","type":"verification"}
+{"attempt":1,"level":"warn","message":"Email send attempt 1 failed, retrying...","timestamp":"2025-07-29T00:57:28.102Z"}
+{"attempt":2,"level":"warn","message":"Email send attempt 2 failed, retrying...","timestamp":"2025-07-29T00:57:29.514Z"}
+{"email":"funcartoonpk@gmail.com","level":"error","message":"Failed to send verification email","timestamp":"2025-07-29T00:57:31.871Z","userId":"68881c767e412b10b13ae3b4"}
+{"email":"funcartoonpk@gmail.com","level":"info","message":"Stored failed verification in database","timestamp":"2025-07-29T00:57:31.940Z","type":"verification"}
+{"attempt":1,"email":"ra920453@gmail.com","level":"warn","message":"Email send attempt 1 failed, retrying...","timestamp":"2025-07-29T01:09:19.123Z"}
+{"attempt":2,"email":"ra920453@gmail.com","level":"warn","message":"Email send attempt 2 failed, retrying...","timestamp":"2025-07-29T01:09:21.742Z"}
+{"email":"ra920453@gmail.com","level":"error","message":"Failed to send verification email","timestamp":"2025-07-29T01:09:24.155Z","userId":"68881f3d09007e1338d748c7"}
+{"email":"ra920453@gmail.com","level":"info","message":"Stored failed verification in database","timestamp":"2025-07-29T01:09:24.234Z","type":"verification"}
+{"attempt":1,"email":"funcartoonpk@gmail.com","level":"warn","message":"Email send attempt 1 failed, retrying...","timestamp":"2025-07-29T01:56:23.108Z"}
+{"attempt":2,"email":"funcartoonpk@gmail.com","level":"warn","message":"Email send attempt 2 failed, retrying...","timestamp":"2025-07-29T01:56:24.498Z"}
+{"email":"funcartoonpk@gmail.com","level":"error","message":"Failed to send verification email","timestamp":"2025-07-29T01:56:26.999Z","userId":"68882a4564a2dae3affabcb0"}
+{"email":"funcartoonpk@gmail.com","level":"info","message":"Stored failed verification in database","timestamp":"2025-07-29T01:56:27.207Z","type":"verification"}
+{"attempt":1,"email":"funcartoonpk@gmail.com","level":"warn","message":"Email send attempt 1 failed, retrying...","timestamp":"2025-07-29T01:58:02.827Z"}
+{"attempt":2,"email":"funcartoonpk@gmail.com","level":"warn","message":"Email send attempt 2 failed, retrying...","timestamp":"2025-07-29T01:58:04.289Z"}
+{"email":"funcartoonpk@gmail.com","level":"error","message":"Failed to send verification email","timestamp":"2025-07-29T01:58:06.828Z","userId":"68882aa864a2dae3affabcb7"}
+{"email":"funcartoonpk@gmail.com","level":"info","message":"Stored failed verification in database","timestamp":"2025-07-29T01:58:06.929Z","type":"verification"}
+{"attempt":1,"email":"funcartoonpk@gmail.com","level":"warn","message":"Email send attempt 1 failed, retrying...","timestamp":"2025-07-29T10:39:37.208Z"}
+{"attempt":2,"email":"funcartoonpk@gmail.com","level":"warn","message":"Email send attempt 2 failed, retrying...","timestamp":"2025-07-29T10:39:38.706Z"}
+{"email":"funcartoonpk@gmail.com","level":"error","message":"Failed to send verification email","timestamp":"2025-07-29T10:39:41.104Z","userId":"6888a4e67e6c8f05aea3276a"}
+{"email":"funcartoonpk@gmail.com","level":"info","message":"Stored failed verification in database","timestamp":"2025-07-29T10:39:41.253Z","type":"verification"}
+{"attempt":1,"level":"warn","message":"Retrying email send","timestamp":"2025-07-29T10:59:40.746Z"}
+{"attempt":2,"level":"warn","message":"Retrying email send","timestamp":"2025-07-29T10:59:42.447Z"}
