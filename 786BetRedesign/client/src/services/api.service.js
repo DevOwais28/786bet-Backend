@@ -16,7 +16,7 @@ import axios from 'axios';
 class ApiService {
   constructor() {
     // Use absolute URL in development to ensure proper proxy handling
-    this.baseURL = 'https://786bet-backend-production.up.railway.app/api';
+    this.baseURL = '786bet-backend-production-4988.up.railway.app/api';
     this.api = axios.create({
       baseURL: this.baseURL,
       timeout: 10000,
