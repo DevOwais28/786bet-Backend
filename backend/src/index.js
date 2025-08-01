@@ -251,7 +251,7 @@ io.on('connection', (socket) => {
     console.log('User disconnected:', socket.id);
   });
 });
-
+const port = process.env.PORT || 8080;
 // Start server
 server.listen(port, () => {
   console.log(`Server running on port ${port}`);
