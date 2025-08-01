@@ -101,6 +101,10 @@ app.use((req, res, next) => {
   
   next();
 });
+// Mount routes under `/api`
+app.use("/api/auth", authRoutes);
+// app.use("/api/users", userRoutes);
+// app.use("/api/game", gameRoutes);
 
 // Server health check endpoints
 app.get('/health', (req, res) => {
