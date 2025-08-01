@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
-import { apiService, AuthResponse, LoginRequest, RegisterRequest } from '@/services/api.service';
-
+import { apiService } from '@/services/api.service';
 
 const AuthContext = createContext();
 
@@ -12,44 +11,83 @@ function AuthProvider({ children }) {
   const [requires2FA, setRequires2FA] = useState(false);
   const { toast } = useToast();
 
+  // CRITICAL: Single source of truth for auth initialization
   useEffect(() => {
     let isMounted = true;
-    let hasInitialized = false;
     
     const initializeAuth = async () => {
-      if (!isMounted || hasInitialized) return;
+      if (!isMounted) return;
       
       try {
         setIsLoading(true);
         
-        // Check if user is already authenticated via cookies
+        // 1. First, check if we have any stored tokens
+        const storedToken = sessionStorage.getItem('authToken') || localStorage.getItem('authToken');
+        
+        // 2. Check cookie-based auth (your backend's session)
         const response = await apiService.checkAuth();
         
         if (!isMounted) return;
         
-        hasInitialized = true;
-        
         if (response.isAuthenticated && response.user) {
-          // User is authenticated via cookies, set user state
+          // We have valid auth via cookies
           setUser(response.user);
-          setToken('authenticated'); // Dummy token since cookies handle auth
-          apiService.setAuthToken('authenticated');
-        } else if (response.isAuthenticated === false) {
-          // Only clear state if we get a definitive "not authenticated" response
-          setUser(null);
-          setToken(null);
-          apiService.setAuthToken(null);
+          setToken(storedToken || 'cookie-auth'); // Use stored token or cookie marker
+          
+          // Ensure API service has the token
+          if (storedToken) {
+            apiService.setAuthToken(storedToken);
+          }
+          
+        } else if (storedToken) {
+          // We have a stored token but cookie auth failed - try to use it
+          apiService.setAuthToken(storedToken);
+          try {
+            const userResponse = await apiService.getUserProfile();
+            setUser(userResponse);
+            setToken(storedToken);
+          } catch (profileError) {
+            // Token is invalid, clear everything
+            if (isMounted) {
+              sessionStorage.removeItem('authToken');
+              localStorage.removeItem('authToken');
+              localStorage.removeItem('refreshToken');
+              setUser(null);
+              setToken(null);
+              apiService.setAuthToken(null);
+            }
+          }
+        } else {
+          // No auth found
+          if (isMounted) {
+            setUser(null);
+            setToken(null);
+            apiService.setAuthToken(null);
+          }
         }
       } catch (error) {
         if (!isMounted) return;
+        console.warn('Auth initialization error:', error);
         
-        hasInitialized = true;
-        console.warn('Auth initialization error (may be temporary):', error);
-        // Only clear on actual auth failure
-        if (error.response?.status === 401) {
-          setUser(null);
-          setToken(null);
-          apiService.setAuthToken(null);
+        // Network error - don't clear tokens immediately
+        const storedToken = sessionStorage.getItem('authToken') || localStorage.getItem('authToken');
+        if (storedToken) {
+          apiService.setAuthToken(storedToken);
+          // Try to load user anyway
+          try {
+            const userResponse = await apiService.getUserProfile();
+            setUser(userResponse);
+            setToken(storedToken);
+          } catch {
+            // Only clear on definite auth failure
+            if (error.response?.status === 401) {
+              sessionStorage.removeItem('authToken');
+              localStorage.removeItem('authToken');
+              localStorage.removeItem('refreshToken');
+              setUser(null);
+              setToken(null);
+            }
+          }
         }
       } finally {
         if (isMounted) {
@@ -60,40 +98,10 @@ function AuthProvider({ children }) {
     
     initializeAuth();
     
-    // Check auth on page visibility change (when user returns to tab)
-    const handleVisibilityChange = () => {
-      if (!document.hidden && !hasInitialized) {
-        initializeAuth();
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => {
       isMounted = false;
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, []); // Only run once on mount
-
-  const loadUser = async () => {
-    try {
-      const response = await apiService.getUserProfile();
-      setUser(response);
-    } catch (error) {
-      console.error('Failed to load user:', error);
-      // Handle specific error cases
-      if (error.response?.status === 404 && error.response?.data?.message === 'User not found') {
-        console.warn('User referenced in token does not exist - clearing invalid token');
-        toast({
-          title: 'Session Expired',
-          description: 'Your session is invalid. Please log in again.',
-          variant: 'destructive',
-        });
-      }
-      logout();
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  }, []); // Only run on mount
 
   const login = async (credentials) => {
     try {
@@ -106,31 +114,28 @@ function AuthProvider({ children }) {
       }
       
       if (response.success) {
+        // Store token in both storages for persistence
+        sessionStorage.setItem('authToken', response.token);
+        localStorage.setItem('authToken', response.token);
+        
         setUser(response.user);
         setToken(response.token);
-        sessionStorage.setItem('authToken', response.token);
         setRequires2FA(false);
+        apiService.setAuthToken(response.token);
         
-        // Check if this is the user's first login
-        const isFirstLogin = response.user.isFirstLogin;
-        
-        // Send welcome email only on first login
-        if (isFirstLogin) {
+        // Send welcome email for first login
+        if (response.user.isFirstLogin) {
           try {
             const emailJSService = (await import('@/services/emailjs.service.js')).default;
             await emailJSService.sendWelcomeEmail(response.user.email, response.user.username);
-            console.log('Welcome email sent for first login');
           } catch (emailError) {
             console.error('Failed to send welcome email:', emailError);
-            // Don't fail login if email fails
           }
         }
         
         toast({
-          title: isFirstLogin ? 'Welcome!' : 'Welcome back!',
-          description: isFirstLogin ? 
-            `Welcome to 786Bet, ${response.user.username}!` : 
-            `Logged in as ${response.user.username}`,
+          title: response.user.isFirstLogin ? 'Welcome!' : 'Welcome back!',
+          description: `Logged in as ${response.user.username}`,
         });
         
         return { success: true, user: response.user };
@@ -150,78 +155,33 @@ function AuthProvider({ children }) {
     }
   };
 
-  const verify2FA = async (token) => {
+  // Add this method to your AuthContext
+  const checkAuthStatus = async () => {
     try {
-      setIsLoading(true);
-      const response = await apiService.verify2FA(token);
-      
-      if (response.verified) {
-        // The actual user/token should be returned from the 2FA verification
-        // For now, we'll assume the login was successful
-        setRequires2FA(false);
-        toast({
-          title: 'Success!',
-          description: 'Two-factor authentication verified.',
-        });
-        return true;
-      } else {
-        toast({
-          title: 'Invalid Code',
-          description: 'The verification code is incorrect.',
-          variant: 'destructive',
-        });
-        return false;
-      }
-    } catch (error) {
-      const message = error.message;
-      toast({
-        title: 'Verification failed',
-        description: message,
-        variant: 'destructive',
-      });
-      return false;
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const register = async (userData) => {
-    try {
-      setIsLoading(true);
-      const response = await apiService.register(userData);
-      
-      // Handle redirect for email verification
-      if (response.redirect) {
-        toast({
-          title: 'Registration successful!',
-          description: 'Please check your email to verify your account.',
-        });
-        return response; // Return full response with redirect
-      }
-      
-      // For immediate login (if configured)
-      if (response.user && response.token) {
+      const response = await apiService.checkAuth();
+      if (response.isAuthenticated && response.user) {
         setUser(response.user);
-        setToken(response.token);
-        sessionStorage.setItem('authToken', response.token);
-        
-        toast({
-          title: 'Registration successful!',
-          description: `Welcome, ${response.user.username}!`,
-        });
+        const token = sessionStorage.getItem('authToken') || localStorage.getItem('authToken');
+        setToken(token || 'authenticated');
+        apiService.setAuthToken(token);
+      } else {
+        // Only clear if we get a definitive "not authenticated"
+        const storedToken = sessionStorage.getItem('authToken') || localStorage.getItem('authToken');
+        if (storedToken) {
+          // Try one more time with stored token
+          apiService.setAuthToken(storedToken);
+          const userResponse = await apiService.getUserProfile();
+          setUser(userResponse);
+          setToken(storedToken);
+        } else {
+          setUser(null);
+          setToken(null);
+          apiService.setAuthToken(null);
+        }
       }
-      
-      return response;
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Registration failed';
-      toast({
-        title: 'Registration failed',
-        description: message,
-        variant: 'destructive',
-      });
-      return false;
-    } finally {
-      setIsLoading(false);
+      console.error('Auth check failed:', error);
+      // Don't clear tokens on network errors
     }
   };
 
@@ -233,6 +193,10 @@ function AuthProvider({ children }) {
     } finally {
       setUser(null);
       setToken(null);
+      sessionStorage.removeItem('authToken');
+      localStorage.removeItem('authToken');
+      localStorage.removeItem('refreshToken');
+      apiService.setAuthToken(null);
       toast({
         title: 'Logged out',
         description: 'You have been successfully logged out',
@@ -240,145 +204,56 @@ function AuthProvider({ children }) {
     }
   };
 
-  const refreshUser = async () => {
-    if (!token) return;
-    
-    try {
-      const response = await apiService.getUserProfile();
-      setUser(response);
-    } catch (error) {
-      console.error('Failed to refresh user:', error);
-      // Don't immediately logout on refresh failure - check if it's a 401
-      if (error.response?.status === 401) {
-        // Let the axios interceptor handle the token refresh
-        console.log('Token refresh will be handled by interceptor');
-      } else {
-        // Other errors - network issues, etc.
-        logout();
-      }
-    }
-  };
-
-  // Add method to check if token is still valid
-  const checkTokenValidity = async () => {
-    try {
-      await apiService.getUserProfile();
-      return true;
-    } catch (error) {
-      if (error.response?.status === 401) {
-        return false;
-      }
-      // Network or other errors - assume token might still be valid
-      return true;
-    }
-  };
-
-  // Add method to handle silent re-authentication
-  const handleSilentAuthFailure = () => {
-    // Instead of immediate logout, provide user feedback
-    toast({
-      title: 'Session Expired',
-      description: 'Your session has expired. Please log in again.',
-      variant: 'destructive',
-      duration: 5000,
-    });
-    
-    // Small delay before logout to allow user to see the message
-    setTimeout(() => {
-      logout();
-    }, 2000);
-  };
-
-  // Register auth failure callback for API service
-  useEffect(() => {
-    window.authFailureCallback = handleSilentAuthFailure;
-    window.showAuthToast = (message) => {
-      toast({
-        title: 'Authentication Required',
-        description: message,
-        variant: 'destructive',
-        duration: 5000,
-      });
-    };
-    
-    return () => {
-      delete window.authFailureCallback;
-      delete window.showAuthToast;
-    };
-  }, []);
-
-  // Add proactive token monitoring with better error handling
-  useEffect(() => {
-    if (!token) return;
-
-    const checkTokenHealth = async () => {
-      try {
-        // Use a lightweight endpoint to check auth status
-        await apiService.checkAuth();
-        console.log('Token health check passed');
-      } catch (error) {
-        console.warn('Token health check failed:', error);
-        // Only force logout if we get a 401 and the user is actually logged out
-        if (error.response?.status === 401) {
-          // Check if we can still access the check-auth endpoint
-          try {
-            const authCheck = await apiService.checkAuth();
-            if (!authCheck.isAuthenticated) {
-              handleSilentAuthFailure();
-            }
-          } catch (secondError) {
-            console.error('Confirmed token invalid, forcing logout');
-            handleSilentAuthFailure();
-          }
-        }
-      }
-    };
-
-    // Check token health on page focus and visibility change - but less aggressively
-    const handleVisibilityChange = () => {
-      if (!document.hidden && token) {
-        // Skip check if we just navigated back (within last 2 seconds)
-        const lastCheck = sessionStorage.getItem('lastAuthCheck');
-        const now = Date.now();
-        if (!lastCheck || (now - parseInt(lastCheck)) > 2000) {
-          checkTokenHealth();
-          sessionStorage.setItem('lastAuthCheck', now.toString());
-        }
-      }
-    };
-
-    const handleFocus = () => {
-      if (token) {
-        const lastCheck = sessionStorage.getItem('lastAuthCheck');
-        const now = Date.now();
-        if (!lastCheck || (now - parseInt(lastCheck)) > 2000) {
-          checkTokenHealth();
-          sessionStorage.setItem('lastAuthCheck', now.toString());
-        }
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('focus', handleFocus);
-
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('focus', handleFocus);
-    };
-  }, [token]);
-
+  // Remove aggressive token monitoring
   const value = {
     user,
     token,
     isLoading,
     requires2FA,
     login,
-    verify2FA,
-    register,
+    verify2FA: async (token) => {
+      // Your existing 2FA logic
+      try {
+        setIsLoading(true);
+        const response = await apiService.verify2FA(token);
+        if (response.verified) {
+          setRequires2FA(false);
+          toast({ title: 'Success!', description: 'Two-factor authentication verified.' });
+          return true;
+        }
+        return false;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    register: async (userData) => {
+      try {
+        setIsLoading(true);
+        const response = await apiService.register(userData);
+        if (response.redirect) {
+          toast({
+            title: 'Registration successful!',
+            description: 'Please check your email to verify your account.',
+          });
+        }
+        return response;
+      } finally {
+        setIsLoading(false);
+      }
+    },
     logout,
-    refreshUser,
-    loadUser,
-    checkTokenValidity
+    checkAuthStatus, // Add this
+    refreshUser: async () => {
+      if (!token) return;
+      try {
+        const userResponse = await apiService.getUserProfile();
+        setUser(userResponse);
+      } catch (error) {
+        if (error.response?.status === 401) {
+          logout();
+        }
+      }
+    }
   };
 
   return (
@@ -389,11 +264,11 @@ function AuthProvider({ children }) {
 }
 
 export { AuthProvider };
-
 export function useAuth() {
   const context = useContext(AuthContext);
   if (!context) {
     throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;
-}
+          }
+      
