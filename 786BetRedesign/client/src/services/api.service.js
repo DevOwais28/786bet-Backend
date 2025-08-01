@@ -16,8 +16,8 @@ import axios from 'axios';
 class ApiService {
   constructor() {
     // Use local backend for development, production URL for deployment
-    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    this.baseURL = isLocal ? 'http://localhost:4000' : 'https://786bet-backend-production-2302.up.railway.app';
+  const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  const envUrl = import.meta.env.VITE_API_URL;
     this.api = axios.create({
       baseURL: this.baseURL,
       timeout: 10000,
