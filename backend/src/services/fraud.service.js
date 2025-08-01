@@ -1,6 +1,6 @@
 const User = require('../models/User.js');
 const LoginLog = require('../models/LoginLog.js');
-const Transaction = require('../models/transaction.js');
+const Transaction = require('../models/Transaction.js');
 
 class FraudService {
   async detectSuspiciousLogin(userId, ip, userAgent) {

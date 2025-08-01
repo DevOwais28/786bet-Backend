@@ -1,5 +1,5 @@
 const User = require('../models/User.js');
-const Transaction = require('../models/transaction.js');
+const Transaction = require('../models/Transaction.js');
 const Bet = require('../models/Bet.js');
 const { FraudDetectionService } = require('../services/fraudDetection.service.js');
 
@@ -17,7 +17,7 @@ const getDashboardStats = async (req, res) => {
     const totalDeposited = await Transaction.aggregate([
       { $match: { type: 'deposit', status: 'approved' } },
       { $group: { _id: null, total: { $sum: '$amount' } } }
-    ]);
+    ]); 
 
     const totalWithdrawn = await Transaction.aggregate([
       { $match: { type: 'withdrawal', status: 'approved' } },

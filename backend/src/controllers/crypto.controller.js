@@ -1,4 +1,4 @@
-const Transaction = require('../models/transaction.js');
+const Transaction = require('../models/Transaction.js');
 const User = require('../models/User.js');
 const axios = require('axios');
 const crypto = require('crypto');

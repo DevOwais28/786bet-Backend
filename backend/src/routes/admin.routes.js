@@ -1,5 +1,5 @@
 const { Router } = require('express');
-const Transaction = require('../models/transaction.js');
+const Transaction = require('../models/ ransaction.js');
 const User = require('../models/User.js');
 const { authenticate } = require('../middleware/auth.middleware.js');
 const { registerAdmin } = require('../controllers/admin.controller.js');
