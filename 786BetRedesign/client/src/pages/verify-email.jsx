@@ -136,7 +136,7 @@ export default function VerifyEmail() {
     try {
       console.log('Sending resend verification request...');
       // Get new OTP from backend
-      const response = await api.post('/auth/send-verification', {
+      const response = await api.post('/auth/resend-verification', {
         email: email.trim()
       });
       
@@ -145,17 +145,23 @@ export default function VerifyEmail() {
       if (response.data.success) {
         console.log('OTP generated successfully, sending email...');
         
+        // Ensure OTP exists before proceeding
+        const otp = response.data?.data?.otp;
+        if (!otp) {
+          throw new Error('OTP not found in response data');
+        }
+        
         // Send email using EmailJS with the OTP from backend
         await emailJSService.sendVerificationEmail(
           email,
           'User',
-          response.data.data.otp
+           otp
         );
         
         setModalMessage("New verification email sent successfully!");
         setModalType("success");
       } else {
-        setModalMessage(response.data.message || "Failed to resend verification email.");
+        setModalMessage(response.data?.message || "Failed to resend verification email.");
         setModalType("error");
       }
     } catch (error) {
