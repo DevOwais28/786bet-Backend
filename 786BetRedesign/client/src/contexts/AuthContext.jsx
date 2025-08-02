@@ -9,6 +9,7 @@ function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [requires2FA, setRequires2FA] = useState(false);
   const { toast } = useToast();
 
@@ -33,31 +34,21 @@ function AuthProvider({ children }) {
         if (response?.success && response?.isAuthenticated && response?.user) {
           // User is authenticated via cookies, set user state
           setUser(response.user);
-          setToken('authenticated');
-          apiService.setAuthToken('authenticated');
-          
-          // Store auth state in localStorage to persist across page refreshes
-          localStorage.setItem('isAuthenticated', 'true');
-        } else if (response?.isAuthenticated && response?.user) {
-          // Alternative response format
-          setUser(response.user);
-          setToken('authenticated');
-          apiService.setAuthToken('authenticated');
           localStorage.setItem('isAuthenticated', 'true');
         } else {
-          // Not authenticated - clear state
+          console.log('[Auth] User not authenticated, redirecting to login');
           setUser(null);
-          setToken(null);
-          apiService.setAuthToken(null);
+          setIsAuthenticated(false);
           localStorage.removeItem('isAuthenticated');
         }
       } catch (error) {
-        if (!isMounted) return;
+        console.error('[Auth] Auth initialization error:', error);
+        console.error('[Auth] Error details:', {
+          status: error.response?.status,
+          message: error.response?.data?.message,
+          url: error.config?.url
+        });
         
-        hasInitialized = true;
-        console.warn('Auth initialization error:', error);
-        
-        // Clear state on any auth error
         setUser(null);
         setToken(null);
         apiService.setAuthToken(null);
@@ -264,18 +255,25 @@ function AuthProvider({ children }) {
     } catch (error) {
       console.error('Logout error:', error);
     } finally {
-      // Clear all auth state
+      // Clear all auth state immediately
       setUser(null);
       setToken(null);
-      apiService.setAuthToken(null);
       
-      // Clear all storage
+      // Clear all storage including any cached auth data
       localStorage.removeItem('isAuthenticated');
       localStorage.removeItem('user');
-      sessionStorage.removeItem('authToken');
+      localStorage.removeItem('pendingVerification');
+      sessionStorage.clear();
       
-      // Don't force reload, let the router handle the redirect
-      // This prevents the flash of login page before redirect
+      // Clear any cached API responses
+      if (typeof caches !== 'undefined') {
+        caches.keys().then(names => {
+          names.forEach(name => caches.delete(name));
+        });
+      }
+      
+      // Force complete page reload to clear any cached state
+      window.location.replace('/login');
     }
   };
 
@@ -413,6 +411,7 @@ function AuthProvider({ children }) {
     user,
     token,
     isLoading,
+    isAuthenticated,
     requires2FA,
     login,
     verify2FA,
@@ -434,8 +433,31 @@ export { AuthProvider };
 
 export function useAuth() {
   const context = useContext(AuthContext);
+  
+  // More defensive approach for development/debugging
   if (!context) {
+    console.warn('useAuth called outside AuthProvider - this might be a mounting issue');
+    
+    // Return safe defaults in development to prevent crashes
+    if (process.env.NODE_ENV === 'development') {
+      return {
+        user: null,
+        isLoading: false,
+        isAuthenticated: false,
+        login: () => Promise.reject(new Error('AuthProvider not available')),
+        register: () => Promise.reject(new Error('AuthProvider not available')),
+        logout: () => Promise.resolve(),
+        checkTokenValidity: () => Promise.resolve(false),
+        verify2FA: () => Promise.reject(new Error('AuthProvider not available')),
+        setup2FA: () => Promise.reject(new Error('AuthProvider not available')),
+        verify2FASetup: () => Promise.reject(new Error('AuthProvider not available')),
+        updateProfile: () => Promise.reject(new Error('AuthProvider not available'))
+      };
+    }
+    
+    // In production, throw the error
     throw new Error('useAuth must be used within an AuthProvider');
   }
+  
   return context;
 }
