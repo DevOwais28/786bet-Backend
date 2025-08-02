@@ -551,14 +551,11 @@ const login = async (req, res) => {
       });
     }
 
-    // Check if this is admin email for special handling
     const adminEmail = process.env.ADMIN_EMAIL;
-
     let user;
     const isAdminEmail = email.toLowerCase().trim() === adminEmail?.toLowerCase().trim();
 
     if (isAdminEmail) {
-      // Check if admin exists in database with 'super-admin' role
       user = await User.findOne({
         email: adminEmail.toLowerCase().trim(),
         role: 'super-admin'
@@ -571,13 +568,10 @@ const login = async (req, res) => {
         });
       }
     } else {
-      // Regular user login
       user = await User.findOne({ email: email.toLowerCase().trim() });
     }
 
-    // Check if user exists
     if (!user) {
-      console.log('Login failed: User not found for email:', email.toLowerCase().trim());
       return res.status(401).json({
         success: false,
         message: 'Invalid credentials',
@@ -585,12 +579,8 @@ const login = async (req, res) => {
       });
     }
 
-    // Verify password
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
-      console.log('Login failed: Invalid password for user:', user.email);
-
-      // Log failed login attempt due to invalid password
       const loginLog = new LoginLog({
         user: user._id,
         ip: req.ip || req.connection.remoteAddress,
@@ -607,12 +597,9 @@ const login = async (req, res) => {
       });
     }
 
-    // For super-admin, skip all verification steps and OTP
     const isSuperAdmin = user.role === 'super-admin' && isAdminEmail;
-    
-    // For regular users, check email verification
+
     if (!isSuperAdmin && !user.emailVerified) {
-      console.log('User not verified, rejecting login:', user.email);
       return res.status(403).json({
         success: false,
         message: 'Please verify your email before logging in',
@@ -622,12 +609,10 @@ const login = async (req, res) => {
         email: user.email
       });
     }
-    
-    // For super-admin, ensure email is marked as verified
+
     if (isSuperAdmin && !user.emailVerified) {
       user.emailVerified = true;
       await user.save();
-      console.log('Auto-verified super-admin email:', user.email);
     }
 
     // Generate tokens
@@ -643,29 +628,27 @@ const login = async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    // Update user's refresh token
     user.refreshToken = refreshToken;
     await user.save();
 
-    // Set cookies
+    // ✅ FIXED: Set cookies for cross-origin requests
     res.cookie('accessToken', accessToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
+      secure: process.env.NODE_ENV === 'production', // HTTPS in production
+      sameSite: 'None', // Required for cross-origin
       maxAge: 15 * 60 * 1000 // 15 minutes
     });
 
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
+      secure: process.env.NODE_ENV === 'production', // HTTPS in production
+      sameSite: 'None', // Required for cross-origin
+      path: '/api/auth/refresh-token', // Limit cookie to refresh endpoint
       maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
     });
 
-    // Check if this is first login (no lastLoginAt timestamp)
     const isFirstLogin = !user.lastLoginAt;
 
-    // Log successful login
     const loginLog = new LoginLog({
       user: user._id,
       ip: req.ip || req.connection.remoteAddress,
@@ -675,11 +658,9 @@ const login = async (req, res) => {
     });
     await loginLog.save();
 
-    // Update last login time
     user.lastLoginAt = new Date();
     await user.save();
 
-    // Send response with tokens
     res.json({
       success: true,
       message: 'Login successful',
@@ -699,7 +680,6 @@ const login = async (req, res) => {
   } catch (error) {
     console.error('Login error:', error);
 
-    // Log failed login attempt
     if (req.body.email) {
       try {
         const user = await User.findOne({ email: req.body.email.toLowerCase().trim() });
