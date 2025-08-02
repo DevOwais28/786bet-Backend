@@ -114,6 +114,7 @@ export default function VerifyEmail() {
     
 const handleResendVerification = async () => {
   if (!email) {
+    console.error('No email available to resend verification');
     toast({
       title: "Error",
       description: "No email address found. Please try registering again.",
@@ -122,23 +123,26 @@ const handleResendVerification = async () => {
     return;
   }
 
+  console.log('Attempting to resend verification to:', email);
   setResendLoading(true);
 
   try {
-    // ✅ Ask backend for a new verification link
+    // ✅ Ask backend to regenerate OTP for the given email
     const response = await api.post('/auth/send-verification', {
-      userId: localStorage.getItem('userId') // ensure this is saved at registration
+      email: email.trim()
     });
 
-    if (response.data.success) {
-      const verificationUrl = response.data.data.verificationUrl;
+    console.log('Resend verification response:', response.data);
 
-      // ✅ Send verification link via EmailJS (same as register)
-      await emailJSService.sendVerificationEmail(
-        email, // recipient
-        'User', // name or dynamic placeholder
-        verificationUrl // the actual link
-      );
+    if (response.data.success) {
+      const newOtp = response.data?.data?.otp;
+
+      if (!newOtp) {
+        throw new Error("No OTP received from backend");
+      }
+
+      // ✅ Send the new OTP via EmailJS
+      await emailJSService.sendVerificationEmail(email, 'User', newOtp);
 
       setModalMessage("New verification email sent successfully!");
       setModalType("success");
@@ -149,9 +153,11 @@ const handleResendVerification = async () => {
       setShowModal(true);
     }
   } catch (error) {
+    console.error('Error in handleResendVerification:', error);
     const errorMessage = error.response?.data?.message ||
-                         error.message ||
-                         "Failed to resend verification email. Please try again later.";
+      error.message ||
+      "Failed to resend verification email. Please try again later.";
+
     setModalMessage(errorMessage);
     setModalType("error");
     setShowModal(true);
@@ -160,11 +166,13 @@ const handleResendVerification = async () => {
       title: "Error",
       description: errorMessage,
       variant: "destructive",
+      className: "bg-red-500/90 border-red-400/50 text-white backdrop-blur-sm",
     });
   } finally {
     setResendLoading(false);
   }
 };
+
 
   const closeModal = () => {
     setShowModal(false);
