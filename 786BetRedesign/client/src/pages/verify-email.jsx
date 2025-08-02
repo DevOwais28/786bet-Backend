@@ -125,12 +125,22 @@ const handleResendVerification = async () => {
   setResendLoading(true);
 
   try {
+    // ✅ Ask backend for a new verification link
     const response = await api.post('/auth/send-verification', {
-      userId: localStorage.getItem('userId') // or however you're storing it
+      userId: localStorage.getItem('userId') // ensure this is saved at registration
     });
 
     if (response.data.success) {
-      setModalMessage("Verification link has been sent to your email.");
+      const verificationUrl = response.data.data.verificationUrl;
+
+      // ✅ Send verification link via EmailJS (same as register)
+      await emailJSService.sendVerificationEmail(
+        email, // recipient
+        'User', // name or dynamic placeholder
+        verificationUrl // the actual link
+      );
+
+      setModalMessage("New verification email sent successfully!");
       setModalType("success");
       setShowModal(true);
     } else {
@@ -139,15 +149,22 @@ const handleResendVerification = async () => {
       setShowModal(true);
     }
   } catch (error) {
-    const errorMessage = error.response?.data?.message || "Failed to resend verification email.";
+    const errorMessage = error.response?.data?.message ||
+                         error.message ||
+                         "Failed to resend verification email. Please try again later.";
     setModalMessage(errorMessage);
     setModalType("error");
     setShowModal(true);
+
+    toast({
+      title: "Error",
+      description: errorMessage,
+      variant: "destructive",
+    });
   } finally {
     setResendLoading(false);
   }
 };
-
 
   const closeModal = () => {
     setShowModal(false);
