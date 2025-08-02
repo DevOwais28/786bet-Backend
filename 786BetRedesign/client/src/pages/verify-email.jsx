@@ -41,132 +41,143 @@ export default function VerifyEmail() {
     }
   }, [location]);
 
-  
   const handleVerify = async (e) => {
-  e.preventDefault();
+    e.preventDefault();
+    if (!otp || !email) {
+      setMessage("Please enter the verification code.");
+      return;
+    }
 
-  if (!otp || !email) {
-    setMessage("Please enter the verification code.");
-    return;
-  }
+    setStatus("loading");
+    setMessage("");
 
-  setStatus("loading");
-  setMessage("");
+    try {
+      // Get verification data from localStorage
+      const verificationData = localStorage.getItem('verificationData');
+      if (!verificationData) {
+        setStatus("error");
+        setMessage("No verification data found. Please request a new verification email.");
+        return;
+      }
 
-  try {
-    console.log('Verification request:', { email, otp: otp.trim() });
+      const { email: storedEmail } = JSON.parse(verificationData);
+      
+      console.log('Verification request:', { email: storedEmail, otp: otp.trim() });
 
-    const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:4000'}/api/auth/verify-email`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        email,
-        otp: otp.trim()
-      }),
-      credentials: 'include'
-    });
-
-    const data = await response.json();
-
-    if (data.success) {
-      setStatus("success");
-      setMessage(data.message);
-
-      // ✅ Remove old verification data (if any)
-      localStorage.removeItem('verificationData');
-      localStorage.removeItem('authToken');
-      localStorage.removeItem('accessToken');
-
-      // ✅ Redirect after 2 seconds
-      setTimeout(() => {
-        setLocation('/login');
-      }, 2000);
-
-      toast({
-        title: "Email Verified",
-        description: "Your email has been successfully verified",
-        className: "bg-emerald-500/90 border-emerald-400/50 text-white backdrop-blur-sm",
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:4000'}/api/auth/verify-email`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: storedEmail,
+          otp: otp.trim()
+        }),
+        credentials: 'include'
       });
-    } else {
+
+      const data = await response.json();
+
+      if (data.success) {
+        setStatus("success");
+        setMessage(data.message);
+        
+        // Clear localStorage verification data and any cached auth
+        localStorage.removeItem('verificationData');
+        localStorage.removeItem('authToken');
+        localStorage.removeItem('accessToken');
+        
+        // Redirect to login after 2 seconds with fresh state
+        setTimeout(() => {
+          setLocation('/login');
+        }, 2000);
+        toast({
+          title: "Email Verified",
+          description: "Your email has been successfully verified",
+          className: "bg-emerald-500/90 border-emerald-400/50 text-white backdrop-blur-sm",
+        });
+      } else {
+        setStatus("error");
+        setMessage(data.message || "Verification failed.");
+        toast({
+          title: "Error",
+          description: data.message || "Verification failed",
+          variant: "destructive",
+          className: "bg-red-500/90 border-red-400/50 text-white backdrop-blur-sm",
+        });
+      }
+    } catch (error) {
+      console.error('Verification error:', error);
       setStatus("error");
-      setMessage(data.message || "Verification failed.");
+      setMessage(error.response?.data?.message || "Verification failed. Please try again.");
       toast({
         title: "Error",
-        description: data.message || "Verification failed",
+        description: error.response?.data?.message || "Verification failed",
         variant: "destructive",
         className: "bg-red-500/90 border-red-400/50 text-white backdrop-blur-sm",
       });
     }
-  } catch (error) {
-    console.error('Verification error:', error);
-    setStatus("error");
-    setMessage(error.response?.data?.message || "Verification failed. Please try again.");
-    toast({
-      title: "Error",
-      description: error.response?.data?.message || "Verification failed",
-      variant: "destructive",
-      className: "bg-red-500/90 border-red-400/50 text-white backdrop-blur-sm",
-    });
-  }
-};
+  };
 
   const handleResendVerification = async () => {
-  if (!email) {
-    toast({
-      title: "Error",
-      description: "No email address found. Please try registering again.",
-      variant: "destructive",
-    });
-    return;
-  }
-
-  setResendLoading(true);
-
-  try {
-    // ✅ Call backend to generate new OTP
-    const response = await api.post('/auth/send-verification', {
-      email: email.trim()
-    });
-
-    console.log('Backend resend response:', response.data);
-
-    if (response.data.success) {
-      const newOtp = response.data.data?.otp; // ✅ extract OTP from backend
-      if (!newOtp) throw new Error("OTP missing from server response");
-
-      // ✅ Send email via EmailJS
-      await emailJSService.sendVerificationEmail(email, 'User', newOtp);
-
-      setModalMessage("New verification email sent successfully!");
-      setModalType("success");
-      setShowModal(true);
-    } else {
-      setModalMessage(response.data.message || "Failed to resend verification email.");
+    if (!email) {
+      console.error('No email available to resend verification');
+      toast({
+        title: "Error",
+        description: "No email address found. Please try registering again.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    console.log('Attempting to resend verification to:', email);
+    setResendLoading(true);
+    
+    try {
+      console.log('Sending resend verification request...');
+      // Get new OTP from backend
+      const response = await api.post('/auth/send-verification', {
+        email: email.trim()
+      });
+      
+      console.log('Resend verification response:', response.data);
+      
+      if (response.data.success) {
+        console.log('OTP generated successfully, sending email...');
+        
+        // Send email using EmailJS with the OTP from backend
+        await emailJSService.sendVerificationEmail(
+          email,
+          'User',
+          response.data.data.otp
+        );
+        
+        setModalMessage("New verification email sent successfully!");
+        setModalType("success");
+      } else {
+        setModalMessage(response.data.message || "Failed to resend verification email.");
+        setModalType("error");
+      }
+    } catch (error) {
+      console.error('Error in handleResendVerification:', error);
+      const errorMessage = error.response?.data?.message || 
+                         error.message || 
+                         "Failed to resend verification email. Please try again later.";
+      
+      setModalMessage(errorMessage);
       setModalType("error");
       setShowModal(true);
+      
+      toast({
+        title: "Error",
+        description: errorMessage,
+        variant: "destructive",
+        className: "bg-red-500/90 border-red-400/50 text-white backdrop-blur-sm",
+      });
+    } finally {
+      setResendLoading(false);
     }
-  } catch (error) {
-    console.error('Error in handleResendVerification:', error);
-    const errorMessage =
-      error.response?.data?.message ||
-      error.message ||
-      "Failed to resend verification email. Please try again later.";
-
-    setModalMessage(errorMessage);
-    setModalType("error");
-    setShowModal(true);
-
-    toast({
-      title: "Error",
-      description: errorMessage,
-      variant: "destructive",
-    });
-  } finally {
-    setResendLoading(false);
-  }
-};
+  };
 
   const closeModal = () => {
     setShowModal(false);
