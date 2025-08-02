@@ -24,154 +24,83 @@ const logger = createLogger({
   ]
 });
 
+
 const verifyEmail = async (req, res) => {
   try {
-    const { token, code, email, otp } = req.body;
+    const { email, otp } = req.body;
 
-    if (!token && !code && !otp) {
+    if (!email || !otp) {
       return res.status(400).json({
         success: false,
-        message: 'Verification token, code, or OTP is required',
+        message: 'Email and OTP are required'
       });
     }
 
-    let user;
+    console.log('Verifying email:', email, 'with OTP:', otp);
 
-    if (token) {
-      // Handle JWT token verification
-      let cleanToken = token;
-      try {
-        cleanToken = decodeURIComponent(token);
-      } catch (e) {
-        console.log('Token not URL encoded, using as-is');
-      }
+    // Check pending verification
+    const pendingVerification = await PendingVerification.findOne({
+      email,
+      otp,
+      type: 'verification',
+      expiresAt: { $gt: new Date() } // Not expired
+    });
 
-      try {
-        const decoded = jwt.verify(cleanToken, process.env.JWT_SECRET);
-        console.log('Decoded token:', decoded);
-        user = await User.findOne({ email: decoded.email });
-      } catch (error) {
-        console.log('Token verification failed:', error.message);
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid verification token',
-        });
-      }
-    } else if (otp && email) {
-      // Handle OTP verification directly
-      console.log('Looking for pending verification:', { email, otp, type: 'verification' });
-      const pendingVerification = await PendingVerification.findOne({
-        email,
-        otp,
-        type: 'verification',
-        expiresAt: { $gt: new Date() }
+    if (!pendingVerification) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid or expired OTP'
       });
-
-      console.log('Pending verification found:', !!pendingVerification);
-      if (pendingVerification) {
-        console.log('Pending verification details:', {
-          email: pendingVerification.email,
-          otp: pendingVerification.otp,
-          type: pendingVerification.type,
-          expiresAt: pendingVerification.expiresAt
-        });
-      }
-
-      if (!pendingVerification) {
-        // Check if there are any pending verifications for this email
-        const allPending = await PendingVerification.find({ email, type: 'verification' });
-        console.log('All pending verifications for email:', allPending.length, allPending);
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid or expired OTP',
-        });
-      }
-
-      user = await User.findOne({ email });
-    } else if (code && email) {
-      // Handle legacy code verification
-      user = await User.findOne({ email });
     }
 
+    // Get user
+    const user = await User.findOne({ email });
     if (!user) {
-      console.log('User not found');
-      return res.status(400).json({
+      return res.status(404).json({
         success: false,
-        message: 'Invalid verification token',
+        message: 'User not found'
       });
     }
 
-    // Check if already verified
+    // If already verified
     if (user.emailVerified) {
+      await PendingVerification.deleteOne({ _id: pendingVerification._id });
       return res.json({
         success: true,
         message: 'Email already verified',
-        canProceed: true,
+        canProceed: true
       });
     }
 
-    // Mark as verified
+    // Mark user as verified
     user.emailVerified = true;
     user.verificationStatus = 'verified';
     user.emailVerificationToken = undefined;
     user.emailVerificationExpires = undefined;
+    await user.save();
 
-    try {
-      const savedUser = await user.save();
-      console.log('User saved successfully:', savedUser.email, 'emailVerified:', savedUser.emailVerified);
+    // Remove pending OTP
+    await PendingVerification.deleteOne({ _id: pendingVerification._id });
 
-      // Force reload from database to confirm update
-      const reloadedUser = await User.findById(user._id);
-      console.log('Re-verification from DB - emailVerified:', reloadedUser.emailVerified);
-
-      if (!reloadedUser.emailVerified) {
-        console.error('ERROR: emailVerified not persisted after save!');
-        return res.status(500).json({
-          success: false,
-          message: 'Failed to persist verification status'
-        });
-      }
-
-    } catch (saveError) {
-      console.error('Error saving user:', saveError);
-      return res.status(500).json({
-        success: false,
-        message: 'Failed to update user verification status'
-      });
-    }
-
-    // Clean up pending verification
-    if (otp && email) {
-      try {
-        const deleteResult = await PendingVerification.deleteOne({
-          email,
-          otp,
-          type: 'verification'
-        });
-        console.log('Pending verification cleanup result:', deleteResult);
-      } catch (cleanupError) {
-        console.error('Error cleaning up pending verification:', cleanupError);
-      }
-    }
-
-    console.log('Email verification successful for user:', user.email);
-    console.log('Updated user emailVerified status:', user.emailVerified);
-    console.log('User ID:', user._id);
+    console.log('Email verified successfully for:', email);
 
     return res.json({
       success: true,
       message: 'Email verified successfully',
-      canProceed: true,
+      canProceed: true
     });
 
   } catch (error) {
     console.error('Email verification error:', error);
-    return res.status(400).json({
+    return res.status(500).json({
       success: false,
-      message: 'Invalid verification token',
+      message: 'Internal server error',
+      error: error.message
     });
   }
-};
+};    
+
+
 
 const sendVerification = async (req, res) => {
   try {
