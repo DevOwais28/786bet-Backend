@@ -41,83 +41,77 @@ export default function VerifyEmail() {
     }
   }, [location]);
 
+  
   const handleVerify = async (e) => {
-    e.preventDefault();
-    if (!otp || !email) {
-      setMessage("Please enter the verification code.");
-      return;
-    }
+  e.preventDefault();
 
-    setStatus("loading");
-    setMessage("");
+  if (!otp || !email) {
+    setMessage("Please enter the verification code.");
+    return;
+  }
 
-    try {
-      // Get verification data from localStorage
-      const verificationData = localStorage.getItem('verificationData');
-      if (!verificationData) {
-        setStatus("error");
-        setMessage("No verification data found. Please request a new verification email.");
-        return;
-      }
+  setStatus("loading");
+  setMessage("");
 
-      const { email: storedEmail } = JSON.parse(verificationData);
-      
-      console.log('Verification request:', { email: storedEmail, otp: otp.trim() });
+  try {
+    console.log('Verification request:', { email, otp: otp.trim() });
 
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:4000'}/api/auth/verify-email`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          email: storedEmail,
-          otp: otp.trim()
-        }),
-        credentials: 'include'
+    const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:4000'}/api/auth/verify-email`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        email,
+        otp: otp.trim()
+      }),
+      credentials: 'include'
+    });
+
+    const data = await response.json();
+
+    if (data.success) {
+      setStatus("success");
+      setMessage(data.message);
+
+      // ✅ Remove old verification data (if any)
+      localStorage.removeItem('verificationData');
+      localStorage.removeItem('authToken');
+      localStorage.removeItem('accessToken');
+
+      // ✅ Redirect after 2 seconds
+      setTimeout(() => {
+        setLocation('/login');
+      }, 2000);
+
+      toast({
+        title: "Email Verified",
+        description: "Your email has been successfully verified",
+        className: "bg-emerald-500/90 border-emerald-400/50 text-white backdrop-blur-sm",
       });
-
-      const data = await response.json();
-
-      if (data.success) {
-        setStatus("success");
-        setMessage(data.message);
-        
-        // Clear localStorage verification data and any cached auth
-        localStorage.removeItem('verificationData');
-        localStorage.removeItem('authToken');
-        localStorage.removeItem('accessToken');
-        
-        // Redirect to login after 2 seconds with fresh state
-        setTimeout(() => {
-          setLocation('/login');
-        }, 2000);
-        toast({
-          title: "Email Verified",
-          description: "Your email has been successfully verified",
-          className: "bg-emerald-500/90 border-emerald-400/50 text-white backdrop-blur-sm",
-        });
-      } else {
-        setStatus("error");
-        setMessage(data.message || "Verification failed.");
-        toast({
-          title: "Error",
-          description: data.message || "Verification failed",
-          variant: "destructive",
-          className: "bg-red-500/90 border-red-400/50 text-white backdrop-blur-sm",
-        });
-      }
-    } catch (error) {
-      console.error('Verification error:', error);
+    } else {
       setStatus("error");
-      setMessage(error.response?.data?.message || "Verification failed. Please try again.");
+      setMessage(data.message || "Verification failed.");
       toast({
         title: "Error",
-        description: error.response?.data?.message || "Verification failed",
+        description: data.message || "Verification failed",
         variant: "destructive",
         className: "bg-red-500/90 border-red-400/50 text-white backdrop-blur-sm",
       });
     }
-  };
+  } catch (error) {
+    console.error('Verification error:', error);
+    setStatus("error");
+    setMessage(error.response?.data?.message || "Verification failed. Please try again.");
+    toast({
+      title: "Error",
+      description: error.response?.data?.message || "Verification failed",
+      variant: "destructive",
+      className: "bg-red-500/90 border-red-400/50 text-white backdrop-blur-sm",
+    });
+  }
+};
+    
 
   const handleResendVerification = async () => {
     if (!email) {
