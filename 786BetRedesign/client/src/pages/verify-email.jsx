@@ -112,66 +112,42 @@ export default function VerifyEmail() {
   }
 };
     
+const handleResendVerification = async () => {
+  if (!email) {
+    toast({
+      title: "Error",
+      description: "No email address found. Please try registering again.",
+      variant: "destructive",
+    });
+    return;
+  }
 
-  const handleResendVerification = async () => {
-    if (!email) {
-      console.error('No email available to resend verification');
-      toast({
-        title: "Error",
-        description: "No email address found. Please try registering again.",
-        variant: "destructive",
-      });
-      return;
-    }
-    
-    console.log('Attempting to resend verification to:', email);
-    setResendLoading(true);
-    
-    try {
-      console.log('Sending resend verification request...');
-      // Get new OTP from backend
-      const response = await api.post('/auth/send-verification', {
-        email: email.trim()
-      });
-      
-      console.log('Resend verification response:', response.data);
-      
-      if (response.data.success) {
-        console.log('OTP generated successfully, sending email...');
-        
-        // Send email using EmailJS with the OTP from backend
-        await emailJSService.sendVerificationEmail(
-          email,
-          'User',
-          response.data.data.otp
-        );
-        
-        setModalMessage("New verification email sent successfully!");
-        setModalType("success");
-      } else {
-        setModalMessage(data.message || "Failed to resend verification email.");
-        setModalType("error");
-      }
-    } catch (error) {
-      console.error('Error in handleResendVerification:', error);
-      const errorMessage = error.response?.data?.message || 
-                         error.message || 
-                         "Failed to resend verification email. Please try again later.";
-      
-      setModalMessage(errorMessage);
+  setResendLoading(true);
+
+  try {
+    const response = await api.post('/auth/send-verification', {
+      userId: localStorage.getItem('userId') // or however you're storing it
+    });
+
+    if (response.data.success) {
+      setModalMessage("Verification link has been sent to your email.");
+      setModalType("success");
+      setShowModal(true);
+    } else {
+      setModalMessage(response.data.message || "Failed to resend verification email.");
       setModalType("error");
       setShowModal(true);
-      
-      toast({
-        title: "Error",
-        description: errorMessage,
-        variant: "destructive",
-        className: "bg-red-500/90 border-red-400/50 text-white backdrop-blur-sm",
-      });
-    } finally {
-      setResendLoading(false);
     }
-  };
+  } catch (error) {
+    const errorMessage = error.response?.data?.message || "Failed to resend verification email.";
+    setModalMessage(errorMessage);
+    setModalType("error");
+    setShowModal(true);
+  } finally {
+    setResendLoading(false);
+  }
+};
+
 
   const closeModal = () => {
     setShowModal(false);
