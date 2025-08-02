@@ -111,10 +111,9 @@ export default function VerifyEmail() {
     });
   }
 };
-    
-const handleResendVerification = async () => {
+
+  const handleResendVerification = async () => {
   if (!email) {
-    console.error('No email available to resend verification');
     toast({
       title: "Error",
       description: "No email address found. Please try registering again.",
@@ -123,25 +122,21 @@ const handleResendVerification = async () => {
     return;
   }
 
-  console.log('Attempting to resend verification to:', email);
   setResendLoading(true);
 
   try {
-    // ✅ Ask backend to regenerate OTP for the given email
+    // ✅ Call backend to generate new OTP
     const response = await api.post('/auth/send-verification', {
       email: email.trim()
     });
 
-    console.log('Resend verification response:', response.data);
+    console.log('Backend resend response:', response.data);
 
     if (response.data.success) {
-      const newOtp = response.data?.data?.otp;
+      const newOtp = response.data.data?.otp; // ✅ extract OTP from backend
+      if (!newOtp) throw new Error("OTP missing from server response");
 
-      if (!newOtp) {
-        throw new Error("No OTP received from backend");
-      }
-
-      // ✅ Send the new OTP via EmailJS
+      // ✅ Send email via EmailJS
       await emailJSService.sendVerificationEmail(email, 'User', newOtp);
 
       setModalMessage("New verification email sent successfully!");
@@ -154,7 +149,8 @@ const handleResendVerification = async () => {
     }
   } catch (error) {
     console.error('Error in handleResendVerification:', error);
-    const errorMessage = error.response?.data?.message ||
+    const errorMessage =
+      error.response?.data?.message ||
       error.message ||
       "Failed to resend verification email. Please try again later.";
 
@@ -166,13 +162,11 @@ const handleResendVerification = async () => {
       title: "Error",
       description: errorMessage,
       variant: "destructive",
-      className: "bg-red-500/90 border-red-400/50 text-white backdrop-blur-sm",
     });
   } finally {
     setResendLoading(false);
   }
 };
-
 
   const closeModal = () => {
     setShowModal(false);
